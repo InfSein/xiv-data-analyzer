@@ -1,0 +1,249 @@
+@import "tailwindcss";
+
+:root {
+  /* Surface Hierarchy (Framed Sheet — Light To-B) */
+  --ground: #f9fbfc;
+  --surface: #ffffff;
+  --raised: #f4f6f8;
+  --active: #ebedee;
+
+  /* Hairlines & Controls */
+  --border: #e8eaec;
+  --rule: #f0f1f2;
+  --control: #cdced1;
+
+  /* Ink Hierarchy */
+  --text: #131416;
+  --muted: #5d5f60;
+  --faint: #6b6b6b;
+
+  /* Brand & Action */
+  --accent: #1b6c80;
+  --primary: #1d1f20;
+  --primary-ink: #ffffff;
+
+  /* Semantic Status & Pills */
+  --positive: #1e7b4f;
+  --negative: #c4242a;
+  --warning: #92400e;
+
+  --pill-positive-bg: #dcfae5;
+  --pill-positive-ink: #04250e;
+  --pill-negative-bg: #ffedea;
+  --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fffbeb;
+  --pill-warning-ink: #92400e;
+  --pill-neutral-bg: #ebedee;
+  --pill-neutral-ink: #353736;
+  --pill-accent-bg: #e3f2f6;
+  --pill-accent-ink: #134e5e;
+
+  /* Radii & Typography */
+  --radius-sheet: 16px;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-pill: 6px;
+
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--ground);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numeral enforcement */
+.num,
+table td[data-num],
+table th[data-num] {
+  font-variant-numeric: tabular-nums;
+}
+
+table td[data-num],
+table th[data-num] {
+  text-align: right;
+}
+
+/* Framed-Sheet Shell Geometry */
+.app-shell {
+  display: grid;
+  grid-template-columns: 228px 1fr;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--ground);
+}
+
+.app-sidebar {
+  grid-row: 1 / -1;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 10px;
+  background-color: var(--ground);
+  overflow-y: auto;
+}
+
+.app-topbar {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px 0 8px;
+  background-color: var(--ground);
+}
+
+.app-sheet {
+  grid-row: 2;
+  grid-column: 2;
+  margin: 0 8px 8px 0;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sheet);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Divided KPI Strip (No icon circles, 1px hairlines) */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+  background-color: var(--surface);
+}
+
+.kpi-cell {
+  padding: 12px 20px;
+  border-right: 1px solid var(--rule);
+}
+
+.kpi-cell:last-child {
+  border-right: none;
+}
+
+.kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.kpi-value {
+  margin-top: 2px;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Semantic Status Pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pill-positive {
+  background-color: var(--pill-positive-bg);
+  color: var(--pill-positive-ink);
+}
+
+.pill-negative {
+  background-color: var(--pill-negative-bg);
+  color: var(--pill-negative-ink);
+}
+
+.pill-warning {
+  background-color: var(--pill-warning-bg);
+  color: var(--pill-warning-ink);
+}
+
+.pill-neutral {
+  background-color: var(--pill-neutral-bg);
+  color: var(--pill-neutral-ink);
+}
+
+.pill-accent {
+  background-color: var(--pill-accent-bg);
+  color: var(--pill-accent-ink);
+}
+
+/* Clean Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d5d8dc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b5b9be;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .app-sidebar {
+    grid-row: 1;
+    grid-column: 1;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app-topbar {
+    grid-row: 2;
+    grid-column: 1;
+    padding: 8px 12px;
+  }
+
+  .app-sheet {
+    grid-row: 3;
+    grid-column: 1;
+    margin: 0 8px 8px 8px;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
