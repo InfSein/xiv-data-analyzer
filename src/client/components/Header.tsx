@@ -1,6 +1,7 @@
 import {
   Clock,
   Database,
+  Download,
   GitCompare,
   Hammer,
   Layers,
@@ -32,6 +33,7 @@ interface ChromeNavigationProps {
   query: ItemSearchQuery
   onQueryChange: (nextQuery: ItemSearchQuery) => void
   onSelectPresetItem: (itemId: number) => void
+  onOpenExportModal?: () => void
 }
 
 const SIDEBAR_FILTER_ITEMS: Array<{
@@ -48,14 +50,6 @@ const SIDEBAR_FILTER_ITEMS: Array<{
   { mode: 'consumable', label: '食品与炼金药水', icon: Utensils },
 ]
 
-const QUICK_PRESETS = [
-  { id: 44099, label: '图拉尔菠萝蛋糕' },
-  { id: 34577, label: '金毗罗鳄革白狮鹫手套' },
-  { id: 36108, label: '5级意力之幻药' },
-  { id: 5111, label: '铁矿 (商店/采矿)' },
-  { id: 4925, label: '小龙虾 (垂钓)' },
-]
-
 /**
  * Framed-Sheet L型外框导航组件：包含左侧 228px 导航栏 (.app-sidebar) 与顶部 48px 检索栏 (.app-topbar)
  */
@@ -66,7 +60,7 @@ export function Header({
   versionStatus,
   query,
   onQueryChange,
-  onSelectPresetItem,
+  onOpenExportModal,
 }: ChromeNavigationProps) {
   const [etClock, setEtClock] = useState(() => getCurrentEorzeaTime())
 
@@ -142,6 +136,19 @@ export function Header({
               <span className="pill pill-neutral">Diff</span>
             )}
           </button>
+
+          {onOpenExportModal && (
+            <button
+              type="button"
+              onClick={onOpenExportModal}
+              className="flex h-8 w-full items-center justify-between rounded-[6px] px-2.5 text-[13px] text-[#5d5f60] transition-colors hover:bg-[#f0f1f2] hover:text-[#131416]"
+            >
+              <span className="flex items-center gap-2">
+                <Download className="h-3.5 w-3.5 text-[#1b6c80]" />
+                <span>导出游戏 CSV</span>
+              </span>
+            </button>
+          )}
         </div>
 
         {/* 二级获取途径视图过滤 */}
@@ -284,22 +291,8 @@ export function Header({
           />
         </div>
 
-        {/* 右侧典型样本快捷体验与版本状态 */}
-        <div className="hidden items-center gap-1.5 xl:flex">
-          <span className="text-[11px] text-[#6b6b6b]">典型样本:</span>
-          {QUICK_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => {
-                if (activeTab !== 'workbench') onTabChange('workbench')
-                onSelectPresetItem(preset.id)
-              }}
-              className="h-6 rounded-[5px] border border-[#e8eaec] bg-white px-2 text-[11px] text-[#5d5f60] transition-colors hover:border-[#cdced1] hover:text-[#131416]"
-            >
-              {preset.label}
-            </button>
-          ))}
+        {/* 右侧导出 CSV 与典型样本 */}
+        <div className="flex items-center gap-2">
         </div>
       </header>
     </>

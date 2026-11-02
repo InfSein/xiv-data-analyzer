@@ -20,6 +20,7 @@ import { ItemList } from './components/ItemList'
 import { MapModal, type MapMarkerData } from './components/MapModal'
 import { SearchFilterBar } from './components/SearchFilterBar'
 import { VersionDiffView } from './components/VersionDiffView'
+import { ExportCsvModal } from './components/ExportCsvModal'
 
 const DEFAULT_QUERY: ItemSearchQuery = {
   filter: 'all',
@@ -54,6 +55,7 @@ export function App() {
   const [activeMapMarker, setActiveMapMarker] = useState<MapMarkerData | null>(
     null,
   )
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // 初始化加载系统状态与客户端版本检查状态
@@ -149,6 +151,7 @@ export function App() {
         query={query}
         onQueryChange={setQuery}
         onSelectPresetItem={setSelectedId}
+        onOpenExportModal={() => setIsExportModalOpen(true)}
       />
 
       {/* 内嵌白色工作台主画布 (.app-sheet) */}
@@ -281,6 +284,12 @@ export function App() {
       <MapModal
         marker={activeMapMarker}
         onClose={() => setActiveMapMarker(null)}
+      />
+
+      {/* CSV 解包导出弹窗 */}
+      <ExportCsvModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
       />
     </div>
   )

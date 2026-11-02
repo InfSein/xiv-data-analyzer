@@ -137,3 +137,115 @@ export function getMapUrl(mapPath: string): string {
   if (!mapPath) return ''
   return `/api/map?path=${encodeURIComponent(mapPath)}`
 }
+
+/**
+ * 获取 CSV 导出可用数据表与支持语言元数据
+ */
+export interface ExportMetaResponse {
+  totalSheets: number
+  coreSheets: string[]
+  languages: string[]
+  savedOutputDir: string
+}
+
+export interface LocalUnpackStatusResponse {
+  isRunning: boolean
+  isCompleted?: boolean
+  isCancelled?: boolean
+  currentSheet?: string
+  currentLang?: string
+  processedTasks?: number
+  totalTasks?: number
+  percent?: number
+  errorCount?: number
+  outputDir?: string
+  errorMessage?: string
+  startTime?: number
+  endTime?: number
+}
+
+export async function fetchExportMeta(): Promise<ExportMetaResponse> {
+  const res = await fetch('/api/export/meta')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `获取导出元数据失败 (${res.status})`)
+  }
+  return res.json()
+}
+
+/**
+ * 读取已保存的本地解包配置
+ */
+export async function fetchExportConfig(): Promise<{ localOutputDir: string }> {
+  const res = await fetch('/api/export/config')
+  if (!res.ok) {
+    return { localOutputDir: '' }
+  }
+  return res.json()
+}
+
+/**
+ * 保存本地解包输出目录配置
+ */
+export async function saveExportConfig(localOutputDir: string): Promise<void> {
+  const res = await fetch('/api/export/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localOutputDir }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `保存配置失败 (${res.status})`)
+  }
+}
+
+/**
+ * 触发解包全部 CSV 到本地目录
+ */
+export async function triggerLocalUnpack(
+  outputDir?: string,
+  langs?: string[],
+): Promise<{ success: boolean; message: string; status: LocalUnpackStatusResponse }> {
+  const res = await fetch('/api/export/unpack-local', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outputDir, langs }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `启动本地解包失败 (${res.status})`)
+  }
+  return res.json()
+}
+
+/**
+ * 获取本地解包任务状态
+ */
+export async function fetchLocalUnpackStatus(): Promise<LocalUnpackStatusResponse> {
+  const res = await fetch('/api/export/unpack-status')
+  if (!res.ok) {
+    return { isRunning: false }
+  }
+  return res.json()
+}
+
+/**
+ * 取消本地解包任务
+ */
+export async function cancelLocalUnpack(): Promise<void> {
+  await fetch('/api/export/unpack-cancel', { method: 'POST' })
+}
+
+/**
+ * 构造全量或选定 CSV 导出 Zip 下载链接
+ */
+export function getExportDownloadUrl(langs: string[], sheets?: string[]): string {
+  const params = new URLSearchParams()
+  if (sheets && sheets.length > 0 && !sheets.includes('all')) {
+    params.set('sheets', sheets.join(','))
+  }
+  if (langs.length > 0) {
+    params.set('langs', langs.join(','))
+  }
+  return `/api/export/download?${params.toString()}`
+}

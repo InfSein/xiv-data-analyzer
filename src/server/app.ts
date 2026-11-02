@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import express, { type Express, type Request, type Response } from 'express'
 import type {
   DiffFilterType,
@@ -7,12 +9,65 @@ import type {
 import { loadGameDataStore } from './data-loader'
 import { GameDataService } from './game-data-service'
 import { VersionBackupService } from './version-backup'
+import {
+  ALL_SUPPORTED_LANGS,
+  CsvExportService,
+  type SupportedExportLang,
+} from './csv-exporter'
+import { CORE_SHEET_NAMES, SchemaManager } from './schema-manager'
+
+const EXPORT_CONFIG_FILE = path.resolve(process.cwd(), 'data/export-config.json')
+
+export interface ExportAppConfig {
+  localOutputDir: string
+}
+
+export function loadExportConfig(): ExportAppConfig {
+  try {
+    if (fs.existsSync(EXPORT_CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(EXPORT_CONFIG_FILE, 'utf8'))
+      return {
+        localOutputDir: typeof data.localOutputDir === 'string' ? data.localOutputDir : '',
+      }
+    }
+  } catch (err) {
+    console.warn('[ExportConfig] 读取导出配置失败:', err)
+  }
+  return { localOutputDir: '' }
+}
+
+export function saveExportConfig(config: ExportAppConfig): void {
+  const dir = path.dirname(EXPORT_CONFIG_FILE)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  fs.writeFileSync(EXPORT_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8')
+}
 
 let servicePromise: Promise<GameDataService> | null = null
 const backupServiceByDataService = new WeakMap<
   GameDataService,
   Promise<VersionBackupService>
 >()
+const exportServiceByDataService = new WeakMap<
+  GameDataService,
+  CsvExportService
+>()
+
+export function getExportService(dataService: GameDataService): CsvExportService {
+  let exporter = exportServiceByDataService.get(dataService)
+  if (!exporter) {
+    const store = dataService.getStore()
+    const schemaManager = new SchemaManager()
+    exporter = new CsvExportService(
+      store.cnReader,
+      store.globalReader,
+      schemaManager,
+    )
+    exportServiceByDataService.set(dataService, exporter)
+  }
+  return exporter
+}
 
 /**
  * 获取或初始化与指定 GameDataService 关联的 VersionBackupService
@@ -224,6 +279,160 @@ export function createApiApp(customService?: GameDataService): Express {
     } catch (err) {
       const message = err instanceof Error ? err.message : '未知错误'
       res.status(500).json({ error: `解码地图贴图失败: ${message}` })
+    }
+  })
+
+  // 获取 CSV 导出可选元数据与已保存的本地配置
+  app.get('/api/export/meta', async (_req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const exporter = getExportService(svc)
+      const allSheets = await exporter.schemaManager.getAllSheetNames(
+        svc.getStore().cnReader,
+      )
+      const config = loadExportConfig()
+      res.json({
+        totalSheets: allSheets.length,
+        coreSheets: CORE_SHEET_NAMES,
+        languages: ALL_SUPPORTED_LANGS,
+        savedOutputDir: config.localOutputDir,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(500).json({ error: `获取导出元数据失败: ${message}` })
+    }
+  })
+
+  // 读取已保存的本地解包配置
+  app.get('/api/export/config', (_req: Request, res: Response) => {
+    res.json(loadExportConfig())
+  })
+
+  // 保存本地解包配置
+  app.post('/api/export/config', (req: Request, res: Response) => {
+    try {
+      const outputDir =
+        typeof req.body?.localOutputDir === 'string'
+          ? req.body.localOutputDir.trim()
+          : ''
+      saveExportConfig({ localOutputDir: outputDir })
+      res.json({ success: true, localOutputDir: outputDir })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(500).json({ error: `保存配置失败: ${message}` })
+    }
+  })
+
+  // 触发解包到本地目录
+  app.post('/api/export/unpack-local', async (req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const exporter = getExportService(svc)
+
+      const saved = loadExportConfig()
+      const outputDir = (
+        typeof req.body?.outputDir === 'string'
+          ? req.body.outputDir.trim()
+          : saved.localOutputDir
+      ).trim()
+
+      if (!outputDir) {
+        res.status(400).json({ error: '请先配置本地解包目标目录' })
+        return
+      }
+
+      // 若传入新目录，自动持久化保存
+      if (outputDir !== saved.localOutputDir) {
+        saveExportConfig({ localOutputDir: outputDir })
+      }
+
+      const rawLangs = Array.isArray(req.body?.langs)
+        ? (req.body.langs as string[])
+        : ALL_SUPPORTED_LANGS
+      const langList = rawLangs.filter((l): l is SupportedExportLang =>
+        ALL_SUPPORTED_LANGS.includes(l as SupportedExportLang),
+      )
+
+      await exporter.startUnpackToLocalDirectory(
+        outputDir,
+        langList.length > 0 ? langList : ALL_SUPPORTED_LANGS,
+      )
+
+      res.json({
+        success: true,
+        message: '解包任务已启动',
+        status: exporter.getLocalUnpackStatus(),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(400).json({ error: message })
+    }
+  })
+
+  // 查询当前本地解包进度
+  app.get('/api/export/unpack-status', async (_req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const exporter = getExportService(svc)
+      res.json(exporter.getLocalUnpackStatus() || { isRunning: false })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(500).json({ error: `获取解包状态失败: ${message}` })
+    }
+  })
+
+  // 取消当前本地解包任务
+  app.post('/api/export/unpack-cancel', async (_req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const exporter = getExportService(svc)
+      const cancelled = exporter.cancelLocalUnpack()
+      res.json({ success: cancelled })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(500).json({ error: `取消解包任务失败: ${message}` })
+    }
+  })
+
+  // 导出全量或指定数据表为 Zip 压缩包（直接打包下载）
+  app.get('/api/export/download', async (req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const exporter = getExportService(svc)
+
+      const rawSheets = typeof req.query.sheets === 'string' ? req.query.sheets : ''
+      const isAll = !rawSheets || rawSheets === 'all'
+      const sheetList = isAll
+        ? undefined
+        : rawSheets
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+
+      const rawLangs = typeof req.query.langs === 'string' ? req.query.langs : ''
+      const langList = (
+        rawLangs
+          ? rawLangs.split(',').map((l) => l.trim().toLowerCase())
+          : ALL_SUPPORTED_LANGS
+      ).filter((l): l is SupportedExportLang =>
+        ALL_SUPPORTED_LANGS.includes(l as SupportedExportLang),
+      )
+
+      const filename = `ffxiv-csv-${isAll ? 'all' : (sheetList?.[0] || 'mixed')}-${Date.now()}.zip`
+      res.setHeader('Content-Type', 'application/zip')
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+
+      // 防止全量打包超时
+      req.setTimeout(600000)
+      res.setTimeout(600000)
+
+      const zipStream = exporter.createExportZipStream(sheetList, langList)
+      zipStream.pipe(res)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      if (!res.headersSent) {
+        res.status(500).json({ error: `导出 CSV 失败: ${message}` })
+      }
     }
   })
 
