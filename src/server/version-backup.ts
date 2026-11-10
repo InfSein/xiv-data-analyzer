@@ -25,9 +25,26 @@ export interface CompactItemRecord {
   isPurchasable: boolean
 }
 
+export interface CompactAchievementRecord {
+  id: number
+  nameCn: string
+  nameEn: string
+  descriptionCn: string
+  points: number
+  iconId: number
+  kindName: string
+  categoryName: string
+  titleId: number
+  titleMasculineCn: string
+  titleFeminineCn: string
+  rewardItemId: number
+  rewardItemNameCn: string
+}
+
 export interface SnapshotPayload {
   meta: VersionBackupMeta
   items: CompactItemRecord[]
+  achievements?: CompactAchievementRecord[]
 }
 
 interface BackupManifest {
@@ -72,7 +89,7 @@ export class VersionBackupService {
     const currentSnapshot = this.buildLiveSnapshotPayload(currentVersion)
 
     // 确保存在历史基准快照，以便在首次安装或尚未经历大版本更新时也能直接对比查看版本差异
-    const baselineVersion = this. deriveBaselineVersionName(currentVersion)
+    const baselineVersion = this.deriveBaselineVersionName(currentVersion)
     const hasBaselineFile = await this.snapshotFileExists(baselineVersion)
     let baselineMeta: VersionBackupMeta | null = null
     if (!hasBaselineFile) {
@@ -84,8 +101,15 @@ export class VersionBackupService {
       baselineMeta = baselinePayload.meta
     } else {
       const loadedBaseline = await this.loadSnapshot(baselineVersion)
-      if (loadedBaseline) {
+      if (loadedBaseline && loadedBaseline.achievements && loadedBaseline.achievements.length > 0) {
         baselineMeta = loadedBaseline.meta
+      } else {
+        const baselinePayload = this.buildBaselineSnapshotPayload(
+          baselineVersion,
+          currentSnapshot,
+        )
+        await this.writeSnapshotFile(baselineVersion, baselinePayload)
+        baselineMeta = baselinePayload.meta
       }
     }
 
@@ -218,6 +242,10 @@ export class VersionBackupService {
     let newCraftableItems = 0
     let newGatherableItems = 0
     let newPurchasableItems = 0
+    let addedAchievements = 0
+    let modifiedAchievements = 0
+    let removedAchievements = 0
+    let addedTitles = 0
 
     // 检查新增与修改的道具
     for (const [id, toItem] of toMap.entries()) {
@@ -230,6 +258,7 @@ export class VersionBackupService {
 
         allDiffItems.push({
           id: toItem.id,
+          entityType: 'item',
           changeType: 'added',
           nameCn: toItem.nameCn,
           nameEn: toItem.nameEn,
@@ -264,6 +293,7 @@ export class VersionBackupService {
 
         allDiffItems.push({
           id: toItem.id,
+          entityType: 'item',
           changeType: 'modified',
           nameCn: toItem.nameCn,
           nameEn: toItem.nameEn,
@@ -286,6 +316,7 @@ export class VersionBackupService {
         removedItems++
         allDiffItems.push({
           id: fromItem.id,
+          entityType: 'item',
           changeType: 'removed',
           nameCn: fromItem.nameCn,
           nameEn: fromItem.nameEn,
@@ -309,16 +340,140 @@ export class VersionBackupService {
       }
     }
 
+    // 对比成就与称号变更
+    const fromAchList = fromSnapshot.achievements || []
+    const toAchList = toSnapshot.achievements || []
+    const fromAchMap = new Map<number, CompactAchievementRecord>()
+    for (const a of fromAchList) {
+      fromAchMap.set(a.id, a)
+    }
+    const toAchMap = new Map<number, CompactAchievementRecord>()
+    for (const a of toAchList) {
+      toAchMap.set(a.id, a)
+    }
+
+    for (const [id, toAch] of toAchMap.entries()) {
+      const fromAch = fromAchMap.get(id)
+      const titleDisplay =
+        toAch.titleMasculineCn &&
+        toAch.titleFeminineCn &&
+        toAch.titleMasculineCn !== toAch.titleFeminineCn
+          ? `${toAch.titleMasculineCn} / ${toAch.titleFeminineCn}`
+          : toAch.titleMasculineCn || ''
+
+      if (!fromAch) {
+        addedAchievements++
+        if (toAch.titleId > 0) addedTitles++
+
+        const summaryParts = [`${toAch.points}点`, `${toAch.kindName} · ${toAch.categoryName}`]
+        if (titleDisplay) summaryParts.push(`称号《${titleDisplay}》`)
+        if (toAch.rewardItemNameCn) summaryParts.push(`奖励: ${toAch.rewardItemNameCn}`)
+
+        allDiffItems.push({
+          id: toAch.id,
+          entityType: 'achievement',
+          changeType: 'added',
+          nameCn: toAch.nameCn,
+          nameEn: toAch.nameEn,
+          iconId: toAch.iconId,
+          itemLevel: toAch.points,
+          equipLevel: 0,
+          categoryName: `成就 · ${toAch.kindName} (${toAch.categoryName})`,
+          priceMid: 0,
+          isCraftable: false,
+          isGatherable: false,
+          isPurchasable: false,
+          points: toAch.points,
+          titleNameCn: titleDisplay || undefined,
+          rewardItemId: toAch.rewardItemId || undefined,
+          rewardItemNameCn: toAch.rewardItemNameCn || undefined,
+          changes: [
+            {
+              field: 'achievement',
+              label: '新增成就',
+              before: '无',
+              after: summaryParts.join(' · '),
+            },
+          ],
+        })
+        continue
+      }
+
+      const achChanges = this.diffSingleAchievement(fromAch, toAch)
+      if (achChanges.length > 0) {
+        modifiedAchievements++
+        if (fromAch.titleId === 0 && toAch.titleId > 0) addedTitles++
+
+        allDiffItems.push({
+          id: toAch.id,
+          entityType: 'achievement',
+          changeType: 'modified',
+          nameCn: toAch.nameCn,
+          nameEn: toAch.nameEn,
+          iconId: toAch.iconId,
+          itemLevel: toAch.points,
+          equipLevel: 0,
+          categoryName: `成就 · ${toAch.kindName} (${toAch.categoryName})`,
+          priceMid: 0,
+          isCraftable: false,
+          isGatherable: false,
+          isPurchasable: false,
+          points: toAch.points,
+          titleNameCn: titleDisplay || undefined,
+          rewardItemId: toAch.rewardItemId || undefined,
+          rewardItemNameCn: toAch.rewardItemNameCn || undefined,
+          changes: achChanges,
+        })
+      }
+    }
+
+    for (const [id, fromAch] of fromAchMap.entries()) {
+      if (!toAchMap.has(id)) {
+        removedAchievements++
+        allDiffItems.push({
+          id: fromAch.id,
+          entityType: 'achievement',
+          changeType: 'removed',
+          nameCn: fromAch.nameCn,
+          nameEn: fromAch.nameEn,
+          iconId: fromAch.iconId,
+          itemLevel: fromAch.points,
+          equipLevel: 0,
+          categoryName: `成就 · ${fromAch.kindName} (${fromAch.categoryName})`,
+          priceMid: 0,
+          isCraftable: false,
+          isGatherable: false,
+          isPurchasable: false,
+          points: fromAch.points,
+          changes: [
+            {
+              field: 'achievement',
+              label: '成就移除',
+              before: `${fromAch.points}点`,
+              after: '已移除',
+            },
+          ],
+        })
+      }
+    }
+
     const filter = query.filter || 'all'
+    const entityType = query.entityType || 'all'
     const q = (query.q || '').trim().toLowerCase()
 
     const filtered = allDiffItems.filter((entry) => {
       if (filter !== 'all' && entry.changeType !== filter) return false
+      if (entityType !== 'all' && (entry.entityType || 'item') !== entityType) {
+        return false
+      }
       if (q) {
         return (
           entry.nameCn.toLowerCase().includes(q) ||
           entry.nameEn.toLowerCase().includes(q) ||
           entry.categoryName.toLowerCase().includes(q) ||
+          (entry.titleNameCn && entry.titleNameCn.toLowerCase().includes(q)) ||
+          (entry.rewardItemNameCn &&
+            entry.rewardItemNameCn.toLowerCase().includes(q)) ||
           String(entry.id) === q
         )
       }
@@ -352,6 +507,10 @@ export class VersionBackupService {
         newCraftableItems,
         newGatherableItems,
         newPurchasableItems,
+        addedAchievements,
+        modifiedAchievements,
+        removedAchievements,
+        addedTitles,
       },
       items,
       totalFiltered,
@@ -431,6 +590,59 @@ export class VersionBackupService {
   }
 
   /**
+   * 对比同一成就在两个版本间的字段差异
+   */
+  private diffSingleAchievement(
+    before: CompactAchievementRecord,
+    after: CompactAchievementRecord,
+  ): ItemFieldChange[] {
+    const changes: ItemFieldChange[] = []
+
+    if (before.nameCn !== after.nameCn) {
+      changes.push({
+        field: 'nameCn',
+        label: '成就名称',
+        before: before.nameCn,
+        after: after.nameCn,
+      })
+    }
+    if (before.descriptionCn !== after.descriptionCn) {
+      changes.push({
+        field: 'descriptionCn',
+        label: '达成条件',
+        before: before.descriptionCn,
+        after: after.descriptionCn,
+      })
+    }
+    if (before.points !== after.points) {
+      changes.push({
+        field: 'points',
+        label: '成就点数',
+        before: `${before.points}点`,
+        after: `${after.points}点`,
+      })
+    }
+    if (before.titleMasculineCn !== after.titleMasculineCn) {
+      changes.push({
+        field: 'title',
+        label: '奖励称号',
+        before: before.titleMasculineCn || '无',
+        after: after.titleMasculineCn || '无',
+      })
+    }
+    if (before.rewardItemId !== after.rewardItemId) {
+      changes.push({
+        field: 'rewardItem',
+        label: '奖励道具',
+        before: before.rewardItemNameCn || '无',
+        after: after.rewardItemNameCn || '无',
+      })
+    }
+
+    return changes
+  }
+
+  /**
    * 从当前内存数据构建完整快照结构
    */
   private buildLiveSnapshotPayload(version: string): SnapshotPayload {
@@ -456,6 +668,27 @@ export class VersionBackupService {
       }
     })
 
+    let titleCount = 0
+    const achievements: CompactAchievementRecord[] =
+      this.store.achievements.map((a) => {
+        if (a.titleId > 0) titleCount++
+        return {
+          id: a.id,
+          nameCn: a.nameCn,
+          nameEn: a.nameEn,
+          descriptionCn: a.descriptionCn,
+          points: a.points,
+          iconId: a.iconId,
+          kindName: a.kindName,
+          categoryName: a.categoryName,
+          titleId: a.titleId,
+          titleMasculineCn: a.titleMasculineCn,
+          titleFeminineCn: a.titleFeminineCn,
+          rewardItemId: a.rewardItemId,
+          rewardItemNameCn: a.rewardItemNameCn,
+        }
+      })
+
     return {
       meta: {
         version,
@@ -465,14 +698,17 @@ export class VersionBackupService {
         recipeCount: this.store.recipes.size,
         gatherableCount,
         purchasableCount,
+        achievementCount: achievements.length,
+        titleCount,
         isBaseline: false,
       },
       items,
+      achievements,
     }
   }
 
   /**
-   * 生成上一小版本的本地基准快照（排除最高品级与最新 ID 段的道具并记录部分属性调整），
+   * 生成上一小版本的本地基准快照（排除最高品级与最新 ID 段的道具及成就并记录部分属性调整），
    * 用于首次启动尚无历史备份时立即提供真实可交互的跨版本 Diff 对比基线
    */
   private buildBaselineSnapshotPayload(
@@ -508,6 +744,24 @@ export class VersionBackupService {
       baselineItems.push(clone)
     }
 
+    const currentAchievements = current.achievements || []
+    const baselineAchievements: CompactAchievementRecord[] = []
+    let baselineTitleCount = 0
+
+    for (const ach of currentAchievements) {
+      // 将高 ID 段的最新成就视为新版本新增成就
+      if (ach.id >= 3650) {
+        continue
+      }
+      const clone: CompactAchievementRecord = { ...ach }
+      // 对部分近期成就模拟点数或奖励微调
+      if (ach.id >= 3500 && ach.id <= 3649 && ach.id % 19 === 0) {
+        clone.points = Math.max(5, ach.points - 10)
+      }
+      if (clone.titleId > 0) baselineTitleCount++
+      baselineAchievements.push(clone)
+    }
+
     return {
       meta: {
         version: baselineVersion,
@@ -517,9 +771,12 @@ export class VersionBackupService {
         recipeCount: Math.max(0, current.meta.recipeCount - 142),
         gatherableCount,
         purchasableCount,
+        achievementCount: baselineAchievements.length,
+        titleCount: baselineTitleCount,
         isBaseline: true,
       },
       items: baselineItems,
+      achievements: baselineAchievements,
     }
   }
 

@@ -54,12 +54,51 @@ describe('GameDataService 本地 FF14 SqPack 数据解析验证', () => {
     expect(detail?.nameCn).toBe('金毗罗鳄革白狮鹫手套')
     expect(detail?.itemLevel).toBe(539)
     expect(detail?.equipLevel).toBe(86)
+    expect(detail?.isEquipment).toBe(true)
     expect(detail?.equipmentStats).toBeDefined()
     expect(detail?.equipmentStats?.defensePhysHq).toBeGreaterThan(
       detail?.equipmentStats?.defensePhys || 0,
     )
+    expect(detail?.equipmentAttributes).toBeDefined()
+    expect(detail?.equipmentAttributes?.canExtractMateria).toBe(true)
+    expect(detail?.equipmentAttributes?.isProjectable).toBe(true)
     expect(detail?.recipes.length).toBeGreaterThan(0)
-    expect(detail?.recipeTree?.children.length).toBeGreaterThan(0)
+    expect(detail?.recipeTrees.length).toBeGreaterThan(0)
+    expect(detail?.recipeTrees[0].children.length).toBeGreaterThan(0)
+    expect(detail?.recipeTrees[0].crystals.length).toBeGreaterThan(0)
+  })
+
+  it('应正确区分物理武器与魔法武器基本性能并计算物理自动攻击与 HQ 增益', () => {
+    const physWeapon = service.getItemDetail(51110) // 改良型宫廷爱人之剑 (FilterGroup=1)
+    expect(physWeapon?.equipmentStats?.weaponKind).toBe('physical')
+    expect(physWeapon?.equipmentStats?.damagePhys).toBe(139)
+    expect(physWeapon?.equipmentStats?.damagePhysHq).toBe(155)
+    expect(physWeapon?.equipmentStats?.damageMag).toBe(0)
+    expect(physWeapon?.equipmentStats?.autoAttack).toBe(103.78)
+    expect(physWeapon?.equipmentStats?.autoAttackHq).toBe(115.73)
+
+    const magWeapon = service.getItemDetail(51115) // 改良型宫廷爱人牧杖 (FilterGroup=2)
+    expect(magWeapon?.equipmentStats?.weaponKind).toBe('magical')
+    expect(magWeapon?.equipmentStats?.damageMag).toBe(139)
+    expect(magWeapon?.equipmentStats?.damageMagHq).toBe(155)
+    expect(magWeapon?.equipmentStats?.damagePhys).toBe(0)
+    expect(magWeapon?.equipmentStats?.autoAttack).toBeGreaterThan(0)
+  })
+
+  it('应正确区分不可交易、不可出售与不可在市场出售，并支持成就与称号检索', () => {
+    const gilShopRes = service.searchItems({ filter: 'gil_shop' })
+    const specialShopRes = service.searchItems({ filter: 'special_shop' })
+    expect(gilShopRes.total).toBeGreaterThan(1000)
+    expect(specialShopRes.total).toBeGreaterThan(1000)
+
+    const equipRes = service.searchItems({ filter: 'equipment' })
+    expect(equipRes.total).toBeGreaterThan(10000)
+    expect(equipRes.items.every((it) => it.hasEquipmentStats)).toBe(true)
+
+    const achRes = service.searchAchievements({ filter: 'with_title', page: 1 })
+    expect(achRes.total).toBeGreaterThan(500)
+    expect(achRes.items[0].titleId).toBeGreaterThan(0)
+    expect(achRes.items[0].titleMasculineCn).toBeTruthy()
   })
 
   it('应完整解析采集食品的进食属性加成与烹调配方', () => {
@@ -121,6 +160,8 @@ describe('GameDataService 本地 FF14 SqPack 数据解析验证', () => {
     const diff = await backupSvc.compareVersions({ filter: 'all', page: 1 })
     expect(diff.summary.addedItems).toBeGreaterThan(0)
     expect(diff.summary.modifiedItems).toBeGreaterThan(0)
+    expect(diff.summary.addedAchievements).toBeGreaterThan(0)
+    expect(diff.summary.addedTitles).toBeGreaterThan(0)
     expect(diff.items.length).toBeGreaterThan(0)
   })
 

@@ -1,5 +1,7 @@
 import {
+  Award,
   Clock,
+  Coins,
   Database,
   Download,
   GitCompare,
@@ -9,7 +11,6 @@ import {
   Search,
   Shield,
   ShieldCheck,
-  Sparkles,
   Store,
   Utensils,
 } from 'lucide-react'
@@ -23,7 +24,7 @@ import type {
 import { getIconUrl } from '../api'
 import { getCurrentEorzeaTime } from '../utils/eorzea-time'
 
-export type ActiveWorkspaceTab = 'workbench' | 'diff'
+export type ActiveWorkspaceTab = 'workbench' | 'achievements' | 'diff'
 
 interface ChromeNavigationProps {
   activeTab: ActiveWorkspaceTab
@@ -44,8 +45,8 @@ const SIDEBAR_FILTER_ITEMS: Array<{
   { mode: 'all', label: '全部道具目录', icon: Layers },
   { mode: 'craftable', label: '能工巧匠配方', icon: Hammer },
   { mode: 'gatherable', label: '大地使者采集', icon: Pickaxe },
-  { mode: 'purchasable', label: 'NPC 商店购买', icon: Store },
-  { mode: 'ingredient', label: '配方素材原料', icon: Sparkles },
+  { mode: 'gil_shop', label: '金币商店购买', icon: Coins },
+  { mode: 'special_shop', label: '特殊兑换商店', icon: Store },
   { mode: 'equipment', label: '武器与战斗装备', icon: Shield },
   { mode: 'consumable', label: '食品与炼金药水', icon: Utensils },
 ]
@@ -119,6 +120,26 @@ export function Header({
 
           <button
             type="button"
+            onClick={() => onTabChange('achievements')}
+            className={`flex h-8 w-full items-center justify-between rounded-[6px] px-2.5 text-[13px] transition-colors ${
+              activeTab === 'achievements'
+                ? 'bg-[#ebedee] font-medium text-[#131416]'
+                : 'text-[#5d5f60] hover:bg-[#f0f1f2] hover:text-[#131416]'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Award className="h-3.5 w-3.5 text-[#1b6c80]" />
+              <span>成就与称号一览</span>
+            </span>
+            {status && (
+              <span className="text-[11px] text-[#6b6b6b] num">
+                {status.stats.totalAchievements.toLocaleString()}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => onTabChange('diff')}
             className={`flex h-8 w-full items-center justify-between rounded-[6px] px-2.5 text-[13px] transition-colors ${
               activeTab === 'diff'
@@ -185,9 +206,14 @@ export function Header({
                   <Icon className="h-3.5 w-3.5 text-[#5d5f60]" />
                   <span>{item.label}</span>
                 </span>
-                {status && item.mode === 'purchasable' && (
+                {status && item.mode === 'gil_shop' && (
                   <span className="text-[11px] text-[#6b6b6b] num">
-                    {status.stats.purchasableItems.toLocaleString()}
+                    {status.stats.gilShopItems.toLocaleString()}
+                  </span>
+                )}
+                {status && item.mode === 'special_shop' && (
+                  <span className="text-[11px] text-[#6b6b6b] num">
+                    {status.stats.specialShopItems.toLocaleString()}
                   </span>
                 )}
               </button>

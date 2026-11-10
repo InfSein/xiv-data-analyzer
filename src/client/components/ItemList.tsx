@@ -1,4 +1,10 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { ItemSummary } from '../../shared/types'
 import { getIconUrl } from '../api'
 
@@ -26,6 +32,25 @@ export function ItemList({
   onSelect,
   onPageChange,
 }: ItemListProps) {
+  const [pageInput, setPageInput] = useState<string>(String(page))
+
+  useEffect(() => {
+    setPageInput(String(page))
+  }, [page])
+
+  const commitPageInput = () => {
+    const parsed = parseInt(pageInput.trim(), 10)
+    if (Number.isNaN(parsed)) {
+      setPageInput(String(page))
+      return
+    }
+    const target = Math.max(1, Math.min(totalPages, parsed))
+    setPageInput(String(target))
+    if (target !== page) {
+      onPageChange(target)
+    }
+  }
+
   return (
     <div className="flex h-full flex-col border-r border-[#e8eaec] bg-white">
       {/* 列表表头栏 */}
@@ -113,30 +138,69 @@ export function ItemList({
       </div>
 
       {/* 底部分页控制器 */}
-      <div className="flex items-center justify-between border-t border-[#e8eaec] bg-[#f9fbfc] px-3.5 py-2 text-[12px]">
-        <button
-          type="button"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-[#cdced1] bg-white px-2.5 text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          <span>上一页</span>
-        </button>
+      <div className="flex items-center justify-between gap-1.5 border-t border-[#e8eaec] bg-[#f9fbfc] px-3 py-2 text-[12px]">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="跳到第一页"
+            aria-label="第一页"
+            disabled={page <= 1}
+            onClick={() => onPageChange(1)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-[#cdced1] bg-white text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            className="inline-flex h-7 items-center gap-0.5 rounded-[5px] border border-[#cdced1] bg-white px-2 text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            <span>上一页</span>
+          </button>
+        </div>
 
-        <span className="text-[11px] text-[#5d5f60] num">
-          {page} / {totalPages}
-        </span>
+        <div className="flex items-center gap-1 text-[11px] text-[#5d5f60] num">
+          <input
+            type="text"
+            inputMode="numeric"
+            aria-label="输入跳转页码"
+            value={pageInput}
+            onChange={(e) => setPageInput(e.target.value.replace(/[^\d]/g, ''))}
+            onBlur={commitPageInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur()
+                commitPageInput()
+              }
+            }}
+            className="h-6 w-12 rounded-[4px] border border-[#cdced1] bg-white px-1.5 text-center text-[12px] text-[#131416] focus:border-[#1b6c80] focus:outline-none num"
+          />
+          <span>/ {totalPages}</span>
+        </div>
 
-        <button
-          type="button"
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-          className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-[#cdced1] bg-white px-2.5 text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <span>下一页</span>
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            className="inline-flex h-7 items-center gap-0.5 rounded-[5px] border border-[#cdced1] bg-white px-2 text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span>下一页</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="跳到最后一页"
+            aria-label="最后一页"
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(totalPages)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-[#cdced1] bg-white text-[#131416] transition-colors hover:bg-[#f4f6f8] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronsRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )

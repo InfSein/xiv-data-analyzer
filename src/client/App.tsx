@@ -15,6 +15,7 @@ import {
   getIconUrl,
 } from './api'
 import { type ActiveWorkspaceTab, Header } from './components/Header'
+import { AchievementView } from './components/AchievementView'
 import { ItemDetail } from './components/ItemDetail'
 import { ItemList } from './components/ItemList'
 import { MapModal, type MapMarkerData } from './components/MapModal'
@@ -206,6 +207,11 @@ export function App() {
           <VersionDiffView
             versionStatus={versionStatus}
             onVersionStatusChange={setVersionStatus}
+            onInspectItem={handleInspectFromDiff}
+          />
+        ) : activeTab === 'achievements' ? (
+          <AchievementView
+            status={status}
             onInspectItem={handleInspectFromDiff}
           />
         ) : (

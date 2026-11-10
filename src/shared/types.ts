@@ -27,14 +27,66 @@ export interface SystemStatus {
     craftableItems: number
     gatherableItems: number
     purchasableItems: number
+    gilShopItems: number
+    specialShopItems: number
     totalRecipes: number
     totalGatheringPoints: number
     totalFishingSpots: number
     totalShops: number
+    totalAchievements: number
+    totalTitles: number
     loadTimeMs: number
   }
   categories: ItemCategoryInfo[]
   craftTypes: CraftTypeInfo[]
+  achievementKinds: AchievementKindInfo[]
+}
+
+export interface AchievementKindInfo {
+  id: number
+  name: string
+  count: number
+}
+
+export interface AchievementEntry {
+  id: number
+  nameCn: string
+  nameEn: string
+  nameJa: string
+  descriptionCn: string
+  descriptionEn: string
+  descriptionJa: string
+  points: number
+  iconId: number
+  kindId: number
+  kindName: string
+  categoryId: number
+  categoryName: string
+  titleId: number
+  titleMasculineCn: string
+  titleFeminineCn: string
+  titleNameEn: string
+  titleNameJa: string
+  titleIsPrefix: boolean
+  rewardItemId: number
+  rewardItemNameCn: string
+  rewardItemIconId: number
+}
+
+export interface AchievementSearchQuery {
+  q?: string
+  kindId?: number
+  filter?: 'all' | 'with_title' | 'with_item'
+  page?: number
+  pageSize?: number
+}
+
+export interface AchievementSearchResponse {
+  items: AchievementEntry[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
 }
 
 export interface ItemSummary {
@@ -51,10 +103,19 @@ export interface ItemSummary {
   categoryIconId: number
   priceMid: number
   canBeHq: boolean
+  /** 可在玩家之间交易（未标记 IsUntradable） */
   isTradable: boolean
+  /** 可在市场布告板上架出售（可交易且存在市场检索分类） */
+  isMarketable: boolean
   isCraftable: boolean
   isGatherable: boolean
   isPurchasable: boolean
+  /** 可在金币商店购买 */
+  isGilShop: boolean
+  /** 可在特殊兑换商店（特殊货币 / 军票 / 部队战绩）兑换 */
+  isSpecialShop: boolean
+  /** 拥有装备性能与副属性词条 */
+  hasEquipmentStats: boolean
   usedInRecipesCount: number
 }
 
@@ -63,7 +124,8 @@ export type ItemFilterMode =
   | 'craftable'
   | 'gatherable'
   | 'purchasable'
-  | 'ingredient'
+  | 'gil_shop'
+  | 'special_shop'
   | 'equipment'
   | 'consumable'
 
@@ -102,12 +164,25 @@ export interface EquipmentStatBonus {
   valueHq: number
 }
 
+/**
+ * 武器性能类型：物理武器只展示物理基本性能，魔法武器只展示魔法基本性能，盾牌展示格挡参数
+ */
+export type WeaponKind = 'physical' | 'magical' | 'shield' | 'none'
+
 export interface EquipmentStats {
+  weaponKind: WeaponKind
   damagePhys: number
+  damagePhysHq: number
   damageMag: number
+  damageMagHq: number
+  /** 物理自动攻击（物理基本性能 × 攻击间隔 / 3） */
+  autoAttack: number
+  autoAttackHq: number
   delaySec: number
   blockRate: number
+  blockRateHq: number
   block: number
+  blockHq: number
   defensePhys: number
   defensePhysHq: number
   defenseMag: number
@@ -115,6 +190,20 @@ export interface EquipmentStats {
   materiaSlotCount: number
   isAdvancedMeldingPermitted: boolean
   bonuses: EquipmentStatBonus[]
+}
+
+/**
+ * 装备类道具的附加属性（对应游戏内道具说明底部的可/不可标记）
+ */
+export interface EquipmentAttributes {
+  canExtractMateria: boolean
+  isProjectable: boolean
+  canDesynth: boolean
+  desynthClassJobName: string
+  dyeCount: number
+  isCrestWorthy: boolean
+  canStoreInGlamourDresser: boolean
+  canStoreInArmoire: boolean
 }
 
 export interface ConsumableParamBonus {
@@ -337,17 +426,25 @@ export interface ItemDetail extends ItemSummary {
   canAetherialReduce: boolean
   isGlamourous: boolean
   priceLow: number
+  /** 可出售给 NPC 商人 */
+  isSellable: boolean
+  /** 是否为可穿戴装备（存在装备槽位） */
+  isEquipment: boolean
   classJobCategoryName: string
   equipSlotName: string
   repairClassJobName: string
   repairItemName: string
   equipmentStats?: EquipmentStats
+  equipmentAttributes?: EquipmentAttributes
   consumableEffect?: ConsumableEffect
   recipes: RecipeDetail[]
-  recipeTree?: RecipeTreeNode
+  /** 与 recipes 一一对应的递归工序树 */
+  recipeTrees: RecipeTreeNode[]
   usedInRecipes: UsedInRecipeItem[]
   gathering: GatheringMethodDetail
   shops: ShopPurchaseSource[]
+  /** 奖励该道具的成就列表 */
+  rewardedFromAchievements?: AchievementEntry[]
 }
 
 export interface VersionBackupMeta {
@@ -358,6 +455,8 @@ export interface VersionBackupMeta {
   recipeCount: number
   gatherableCount: number
   purchasableCount: number
+  achievementCount?: number
+  titleCount?: number
   isBaseline?: boolean
 }
 
@@ -379,8 +478,11 @@ export interface ItemFieldChange {
 
 export type DiffFilterType = 'all' | 'added' | 'modified' | 'removed'
 
+export type DiffEntityType = 'all' | 'item' | 'achievement'
+
 export interface DiffItemEntry {
   id: number
+  entityType?: 'item' | 'achievement'
   changeType: 'added' | 'modified' | 'removed'
   nameCn: string
   nameEn: string
@@ -392,6 +494,10 @@ export interface DiffItemEntry {
   isCraftable: boolean
   isGatherable: boolean
   isPurchasable: boolean
+  points?: number
+  titleNameCn?: string
+  rewardItemId?: number
+  rewardItemNameCn?: string
   changes: ItemFieldChange[]
 }
 
@@ -399,6 +505,7 @@ export interface VersionDiffQuery {
   from?: string
   to?: string
   filter?: DiffFilterType
+  entityType?: DiffEntityType
   q?: string
   page?: number
   pageSize?: number
@@ -417,6 +524,10 @@ export interface VersionDiffResponse {
     newCraftableItems: number
     newGatherableItems: number
     newPurchasableItems: number
+    addedAchievements: number
+    modifiedAchievements: number
+    removedAchievements: number
+    addedTitles: number
   }
   items: DiffItemEntry[]
   totalFiltered: number

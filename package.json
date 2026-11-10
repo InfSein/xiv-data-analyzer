@@ -1,6 +1,6 @@
 {
   "name": "xiv-data-analyzer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,9 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ffcafe/elpis-sestring": "^0.1.0",
-    "@ffcafe/elpis-sqpack": "^0.1.0",
-    "@ffcafe/elpis-texture": "^0.1.1",
+    "@ffcafe/elpis-sestring": "^0.2.0",
+    "@ffcafe/elpis-sqpack": "^0.2.0",
+    "@ffcafe/elpis-texture": "^0.2.0",
     "archiver": "^8.0.0",
     "express": "^4.21.2",
     "lucide-react": "^0.475.0",

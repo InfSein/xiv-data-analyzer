@@ -31,7 +31,8 @@
 | `src/client/components/ShopSection.tsx` | NPC 商店购买与特殊货币兑换明细表，展示商店类型、产出数量、所需货币/道具（支持点击跳转）及售卖 NPC 所在区域与地图坐标。 |
 | `src/client/components/RecipeSection.tsx` | 制作配方模块，支持多职业配方切换、工匠属性要求展示、批量制作次数计算器、底层原始素材自动汇总、递归工序树及作为原料的下游配方查询。 |
 | `src/client/components/GatheringSection.tsx` | 采集与捕鱼模块，展示采矿/园艺采集点、限时/精选节点实时倒计时、传承录要求、捕鱼人钓场与刺鱼渔场详情。 |
-| `src/client/components/VersionDiffView.tsx` | 客户端版本变更对比视图，支持选择任意两个本地备份快照，按全部/新增/变更/移除筛选并展示字段级 `变更前 -> 变更后` 对比表。 |
+| `src/client/components/AchievementView.tsx` | 成就与称号数据解析与检索视图，展示成就大类、达成条件、点数、奖励男女称号与奖励道具，并支持一键跳转道具详情。 |
+| `src/client/components/VersionDiffView.tsx` | 客户端版本变更对比视图，支持选择任意两个本地备份快照，按道具或成就/称号过滤并展示字段级 `变更前 -> 变更后` 对比表。 |
 | `src/client/components/MapModal.tsx` | 交互式游戏原生地贴图预览弹窗，加载本地客户端解码的地图贴图并精确标注 NPC 商人或采集/垂钓坐标。 |
 | `test/data-service.test.ts` | 针对本地真实游戏数据解析、NPC 商店购买链路、版本快照备份与跨版本 Diff 对比的自动化测试。 |
 | `test/csv-export.test.ts` | 针对 EXDSchema 列映射算法、RFC 4180 / SaintCoinach CSV 导出与多语言 Zip 流式打包的自动化测试。 |
@@ -62,7 +63,8 @@
                     ▼
             [src/client/App.tsx] (Framed-Sheet Shell)
               ├─► [Header.tsx] ──────────────(L型外框：左侧导航 + 顶部检索 + 实时 ET 时钟)
-              ├─► [VersionDiffView.tsx] ─────(版本快照选择、统计 KPI 与字段级 Diff 表)
+              ├─► [AchievementView.tsx] ─────(成就与称号检索、男女称号对照与奖励道具跳转)
+              ├─► [VersionDiffView.tsx] ─────(版本快照选择、统计 KPI 与道具/成就字段级 Diff 表)
               ├─► [SearchFilterBar.tsx] ─────(四栏分割 KPI 统计带 + 紧凑筛选栏)
               ├─► [ItemList.tsx]
               ├─► [ItemDetail.tsx]

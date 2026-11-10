@@ -2,12 +2,15 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   GitCompare,
   RefreshCw,
   Search,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  DiffEntityType,
   DiffFilterType,
   VersionDiffResponse,
   VersionStatusResponse,
@@ -26,9 +29,15 @@ interface VersionDiffViewProps {
 
 const DIFF_FILTER_TABS: Array<{ mode: DiffFilterType; label: string }> = [
   { mode: 'all', label: '全部变更记录' },
-  { mode: 'added', label: '版本新增道具' },
+  { mode: 'added', label: '版本新增' },
   { mode: 'modified', label: '属性与途径变更' },
-  { mode: 'removed', label: '已移除道具' },
+  { mode: 'removed', label: '已移除' },
+]
+
+const ENTITY_FILTER_TABS: Array<{ mode: DiffEntityType; label: string }> = [
+  { mode: 'all', label: '全部实体' },
+  { mode: 'item', label: '仅看道具' },
+  { mode: 'achievement', label: '仅看成就与称号' },
 ]
 
 /**
@@ -42,11 +51,17 @@ export function VersionDiffView({
   const [fromVer, setFromVer] = useState<string>('')
   const [toVer, setToVer] = useState<string>('')
   const [filter, setFilter] = useState<DiffFilterType>('all')
+  const [entityType, setEntityType] = useState<DiffEntityType>('all')
   const [searchQ, setSearchQ] = useState<string>('')
   const [page, setPage] = useState<number>(1)
+  const [pageInput, setPageInput] = useState<string>('1')
   const [diffData, setDiffData] = useState<VersionDiffResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [backingUp, setBackingUp] = useState<boolean>(false)
+
+  useEffect(() => {
+    setPageInput(String(page))
+  }, [page])
 
   useEffect(() => {
     if (versionStatus) {
@@ -63,6 +78,7 @@ export function VersionDiffView({
       from: fromVer || undefined,
       to: toVer || undefined,
       filter,
+      entityType,
       q: searchQ || undefined,
       page,
       pageSize: 25,
@@ -73,7 +89,7 @@ export function VersionDiffView({
       .finally(() => {
         setLoading(false)
       })
-  }, [fromVer, toVer, filter, searchQ, page])
+  }, [fromVer, toVer, filter, entityType, searchQ, page])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -90,6 +106,20 @@ export function VersionDiffView({
       loadDiff()
     } finally {
       setBackingUp(false)
+    }
+  }
+
+  const commitPageInput = () => {
+    const totalPages = diffData?.totalPages || 1
+    const parsed = parseInt(pageInput.trim(), 10)
+    if (Number.isNaN(parsed)) {
+      setPageInput(String(page))
+      return
+    }
+    const target = Math.max(1, Math.min(totalPages, parsed))
+    setPageInput(String(target))
+    if (target !== page) {
+      setPage(target)
     }
   }
 
@@ -114,7 +144,8 @@ export function VersionDiffView({
             </div>
             <p className="mt-0.5 text-[12px] text-[#5d5f60]">
               每次启动自动读取 <code className="font-mono">ffxivgame.ver</code>{' '}
-              并将快照备份于项目 <code className="font-mono">data/backups/</code>{' '}
+              并将道具、配方、成就与称号快照备份于项目{' '}
+              <code className="font-mono">data/backups/</code>{' '}
               目录，支持任意两版数据对比
             </p>
           </div>
@@ -183,17 +214,8 @@ export function VersionDiffView({
               +{diffData.summary.addedItems.toLocaleString()}
             </div>
             <div className="kpi-meta">
-              对比基准版本 {diffData.fromVersion} 新增条目
-            </div>
-          </div>
-
-          <div className="kpi-cell">
-            <div className="kpi-label">属性与获取途径变更</div>
-            <div className="kpi-value">
-              {diffData.summary.modifiedItems.toLocaleString()}
-            </div>
-            <div className="kpi-meta">
-              含售价调整、新增商店兑换或配方开放
+              属性变更 {diffData.summary.modifiedItems.toLocaleString()} 项 ·
+              新增商店项 +{diffData.summary.newPurchasableItems.toLocaleString()}
             </div>
           </div>
 
@@ -203,17 +225,28 @@ export function VersionDiffView({
               +{diffData.summary.addedRecipes.toLocaleString()}
             </div>
             <div className="kpi-meta">
-              涉及 {diffData.summary.newCraftableItems.toLocaleString()} 项可制作成品
+              新增可制作 +{diffData.summary.newCraftableItems.toLocaleString()} ·
+              新增可采集 +{diffData.summary.newGatherableItems.toLocaleString()}
             </div>
           </div>
 
           <div className="kpi-cell">
-            <div className="kpi-label">新增 NPC 商店可购项</div>
+            <div className="kpi-label">版本新增成就</div>
             <div className="kpi-value text-[#1b6c80]">
-              +{diffData.summary.newPurchasableItems.toLocaleString()}
+              +{(diffData.summary.addedAchievements || 0).toLocaleString()}
             </div>
             <div className="kpi-meta">
-              新增可采集项 +{diffData.summary.newGatherableItems.toLocaleString()}
+              成就变更 {(diffData.summary.modifiedAchievements || 0).toLocaleString()} 项
+            </div>
+          </div>
+
+          <div className="kpi-cell">
+            <div className="kpi-label">新增奖励称号</div>
+            <div className="kpi-value">
+              +{(diffData.summary.addedTitles || 0).toLocaleString()}
+            </div>
+            <div className="kpi-meta">
+              对比基准版本 {diffData.fromVersion}
             </div>
           </div>
         </div>
@@ -221,27 +254,54 @@ export function VersionDiffView({
 
       {/* 3. 筛选标签与搜索工具栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaec] bg-[#f9fbfc] px-5 py-2.5">
-        <div className="flex items-center gap-1">
-          {DIFF_FILTER_TABS.map((tab) => {
-            const active = filter === tab.mode
-            return (
-              <button
-                key={tab.mode}
-                type="button"
-                onClick={() => {
-                  setFilter(tab.mode)
-                  setPage(1)
-                }}
-                className={`h-7 rounded-[6px] px-3 text-[12px] font-medium transition-colors ${
-                  active
-                    ? 'bg-[#1d1f20] text-white'
-                    : 'text-[#5d5f60] hover:bg-[#ebedee] hover:text-[#131416]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1">
+            {DIFF_FILTER_TABS.map((tab) => {
+              const active = filter === tab.mode
+              return (
+                <button
+                  key={tab.mode}
+                  type="button"
+                  onClick={() => {
+                    setFilter(tab.mode)
+                    setPage(1)
+                  }}
+                  className={`h-7 rounded-[6px] px-3 text-[12px] font-medium transition-colors ${
+                    active
+                      ? 'bg-[#1d1f20] text-white'
+                      : 'text-[#5d5f60] hover:bg-[#ebedee] hover:text-[#131416]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <span className="text-[#cdced1]">|</span>
+
+          <div className="flex items-center gap-1">
+            {ENTITY_FILTER_TABS.map((et) => {
+              const active = entityType === et.mode
+              return (
+                <button
+                  key={et.mode}
+                  type="button"
+                  onClick={() => {
+                    setEntityType(et.mode)
+                    setPage(1)
+                  }}
+                  className={`h-7 rounded-[6px] px-2.5 text-[12px] font-medium transition-colors ${
+                    active
+                      ? 'bg-[#1b6c80] text-white'
+                      : 'text-[#5d5f60] hover:bg-[#ebedee] hover:text-[#131416]'
+                  }`}
+                >
+                  {et.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -254,13 +314,17 @@ export function VersionDiffView({
                 setSearchQ(e.target.value)
                 setPage(1)
               }}
-              placeholder="筛选变更道具名称、分类或 ID..."
+              placeholder="筛选道具、成就、称号或 ID..."
               className="h-7 w-full rounded-[6px] border border-[#cdced1] bg-white pr-3 pl-8 text-[12px] text-[#131416] placeholder-[#6b6b6b] focus:border-[#1b6c80] focus:outline-none"
             />
           </div>
           {diffData && (
             <span className="text-[12px] text-[#5d5f60] num">
-              共匹配 <strong className="text-[#131416]">{diffData.totalFiltered.toLocaleString()}</strong> 条变更
+              共匹配{' '}
+              <strong className="text-[#131416]">
+                {diffData.totalFiltered.toLocaleString()}
+              </strong>{' '}
+              条变更
             </span>
           )}
         </div>
@@ -284,14 +348,14 @@ export function VersionDiffView({
             <thead className="sticky top-0 z-10 border-b border-[#e8eaec] bg-[#f9fbfc] text-[12px] font-medium text-[#5d5f60]">
               <tr>
                 <th className="w-24 px-4 py-2.5 text-right font-medium" data-num>
-                  道具 ID
+                  条目 ID
                 </th>
-                <th className="px-4 py-2.5 font-medium">道具名称与分类</th>
-                <th className="w-24 px-3 py-2.5 text-right font-medium" data-num>
-                  品级
+                <th className="px-4 py-2.5 font-medium">名称与分类</th>
+                <th className="w-28 px-3 py-2.5 text-right font-medium" data-num>
+                  品级 / 点数
                 </th>
                 <th className="w-28 px-3 py-2.5 font-medium">变更类型</th>
-                <th className="w-44 px-3 py-2.5 font-medium">获取途径标识</th>
+                <th className="w-48 px-3 py-2.5 font-medium">途径与称号标识</th>
                 <th className="px-4 py-2.5 font-medium">
                   字段变更对比 (变更前 → 变更后)
                 </th>
@@ -301,108 +365,151 @@ export function VersionDiffView({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#f0f1f2]">
-              {diffData.items.map((item) => (
-                <tr
-                  key={item.id}
-                  className="transition-colors hover:bg-[#f9fbfc]"
-                >
-                  <td
-                    className="px-4 py-2.5 text-right text-[12px] text-[#5d5f60] num"
-                    data-num
+              {diffData.items.map((item) => {
+                const isAch = item.entityType === 'achievement'
+                return (
+                  <tr
+                    key={`${item.entityType || 'item'}-${item.id}`}
+                    className="transition-colors hover:bg-[#f9fbfc]"
                   >
-                    #{item.id}
-                  </td>
+                    <td
+                      className="px-4 py-2.5 text-right text-[12px] text-[#5d5f60] num"
+                      data-num
+                    >
+                      #{item.id}
+                    </td>
 
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <img
-                        src={getIconUrl(item.iconId)}
-                        alt={item.nameCn}
-                        className="h-7 w-7 shrink-0 rounded-[4px] border border-[#e8eaec] bg-[#f4f6f8]"
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate font-medium text-[#131416]">
-                          {item.nameCn}
-                        </div>
-                        <div className="truncate text-[11px] text-[#5d5f60]">
-                          {item.categoryName}
-                          {item.nameEn ? ` · ${item.nameEn}` : ''}
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={getIconUrl(item.iconId)}
+                          alt={item.nameCn}
+                          className="h-7 w-7 shrink-0 rounded-[4px] border border-[#e8eaec] bg-[#f4f6f8]"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate font-medium text-[#131416]">
+                              {item.nameCn}
+                            </span>
+                            {isAch && (
+                              <span className="pill pill-accent">成就</span>
+                            )}
+                          </div>
+                          <div className="truncate text-[11px] text-[#5d5f60]">
+                            {item.categoryName}
+                            {item.nameEn ? ` · ${item.nameEn}` : ''}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td
-                    className="px-3 py-2.5 text-right text-[12px] text-[#131416] num"
-                    data-num
-                  >
-                    {item.itemLevel}
-                  </td>
+                    <td
+                      className="px-3 py-2.5 text-right text-[12px] text-[#131416] num"
+                      data-num
+                    >
+                      {isAch ? `${item.points || item.itemLevel} 点` : item.itemLevel}
+                    </td>
 
-                  <td className="px-3 py-2.5">
-                    {item.changeType === 'added' && (
-                      <span className="pill pill-positive">新增道具</span>
-                    )}
-                    {item.changeType === 'modified' && (
-                      <span className="pill pill-warning">属性变更</span>
-                    )}
-                    {item.changeType === 'removed' && (
-                      <span className="pill pill-negative">已移除</span>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {item.isCraftable && (
-                        <span className="pill pill-neutral">配方</span>
-                      )}
-                      {item.isGatherable && (
-                        <span className="pill pill-positive">采集</span>
-                      )}
-                      {item.isPurchasable && (
-                        <span className="pill pill-accent">商店</span>
-                      )}
-                      {!item.isCraftable &&
-                        !item.isGatherable &&
-                        !item.isPurchasable && (
-                          <span className="text-[11px] text-[#6b6b6b]">-</span>
-                        )}
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-2.5">
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.changes.map((chg, idx) => (
-                        <span
-                          key={`${chg.field}-${idx}`}
-                          className="inline-flex items-center gap-1 rounded-[4px] border border-[#e8eaec] bg-[#f4f6f8] px-2 py-0.5 text-[11px] text-[#131416] num"
-                        >
-                          <span className="text-[#5d5f60]">{chg.label}:</span>
-                          <span className="text-[#6b6b6b] line-through">
-                            {chg.before}
-                          </span>
-                          <ArrowRight className="h-2.5 w-2.5 text-[#6b6b6b]" />
-                          <span className="font-medium text-[#131416]">
-                            {chg.after}
-                          </span>
+                    <td className="px-3 py-2.5">
+                      {item.changeType === 'added' && (
+                        <span className="pill pill-positive">
+                          {isAch ? '新增成就' : '新增道具'}
                         </span>
-                      ))}
-                    </div>
-                  </td>
+                      )}
+                      {item.changeType === 'modified' && (
+                        <span className="pill pill-warning">属性变更</span>
+                      )}
+                      {item.changeType === 'removed' && (
+                        <span className="pill pill-negative">已移除</span>
+                      )}
+                    </td>
 
-                  <td className="px-4 py-2.5 text-right">
-                    {item.changeType !== 'removed' && (
-                      <button
-                        type="button"
-                        onClick={() => onInspectItem(item.id)}
-                        className="rounded-[5px] border border-[#cdced1] bg-white px-2.5 py-1 text-[12px] font-medium text-[#131416] transition-colors hover:border-[#1b6c80] hover:text-[#1b6c80]"
-                      >
-                        查看详情
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-3 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {isAch ? (
+                          <>
+                            {item.titleNameCn && (
+                              <span className="pill pill-warning">
+                                《{item.titleNameCn}》
+                              </span>
+                            )}
+                            {item.rewardItemNameCn && (
+                              <span className="pill pill-positive">
+                                奖励: {item.rewardItemNameCn}
+                              </span>
+                            )}
+                            {!item.titleNameCn && !item.rewardItemNameCn && (
+                              <span className="text-[11px] text-[#6b6b6b]">
+                                常规成就
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {item.isCraftable && (
+                              <span className="pill pill-neutral">配方</span>
+                            )}
+                            {item.isGatherable && (
+                              <span className="pill pill-positive">采集</span>
+                            )}
+                            {item.isPurchasable && (
+                              <span className="pill pill-accent">商店</span>
+                            )}
+                            {!item.isCraftable &&
+                              !item.isGatherable &&
+                              !item.isPurchasable && (
+                                <span className="text-[11px] text-[#6b6b6b]">
+                                  -
+                                </span>
+                              )}
+                          </>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.changes.map((chg, idx) => (
+                          <span
+                            key={`${chg.field}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-[4px] border border-[#e8eaec] bg-[#f4f6f8] px-2 py-0.5 text-[11px] text-[#131416] num"
+                          >
+                            <span className="text-[#5d5f60]">{chg.label}:</span>
+                            <span className="text-[#6b6b6b] line-through">
+                              {chg.before}
+                            </span>
+                            <ArrowRight className="h-2.5 w-2.5 text-[#6b6b6b]" />
+                            <span className="font-medium text-[#131416]">
+                              {chg.after}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-2.5 text-right">
+                      {!isAch && item.changeType !== 'removed' && (
+                        <button
+                          type="button"
+                          onClick={() => onInspectItem(item.id)}
+                          className="rounded-[5px] border border-[#cdced1] bg-white px-2.5 py-1 text-[12px] font-medium text-[#131416] transition-colors hover:border-[#1b6c80] hover:text-[#1b6c80]"
+                        >
+                          查看详情
+                        </button>
+                      )}
+                      {isAch && item.rewardItemId && item.rewardItemId > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => onInspectItem(item.rewardItemId!)}
+                          className="rounded-[5px] border border-[#cdced1] bg-white px-2.5 py-1 text-[12px] font-medium text-[#131416] transition-colors hover:border-[#1b6c80] hover:text-[#1b6c80]"
+                        >
+                          查看奖励
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -418,6 +525,15 @@ export function VersionDiffView({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
+              title="跳到第一页"
+              disabled={diffData.page <= 1}
+              onClick={() => setPage(1)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-[#cdced1] bg-white text-[#131416] hover:bg-[#f4f6f8] disabled:opacity-40"
+            >
+              <ChevronsLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
               disabled={diffData.page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-[#cdced1] bg-white px-2.5 text-[#131416] hover:bg-[#f4f6f8] disabled:opacity-40"
@@ -425,6 +541,25 @@ export function VersionDiffView({
               <ChevronLeft className="h-3.5 w-3.5" />
               上一页
             </button>
+            <div className="mx-1 flex items-center gap-1 text-[11px] text-[#5d5f60] num">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={pageInput}
+                onChange={(e) =>
+                  setPageInput(e.target.value.replace(/[^\d]/g, ''))
+                }
+                onBlur={commitPageInput}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur()
+                    commitPageInput()
+                  }
+                }}
+                className="h-7 w-14 rounded-[5px] border border-[#cdced1] bg-white px-1.5 text-center text-[12px] text-[#131416] focus:border-[#1b6c80] focus:outline-none num"
+              />
+              <span>/ {diffData.totalPages}</span>
+            </div>
             <button
               type="button"
               disabled={diffData.page >= diffData.totalPages}
@@ -435,6 +570,15 @@ export function VersionDiffView({
             >
               下一页
               <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title="跳到最后一页"
+              disabled={diffData.page >= diffData.totalPages}
+              onClick={() => setPage(diffData.totalPages)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-[#cdced1] bg-white text-[#131416] hover:bg-[#f4f6f8] disabled:opacity-40"
+            >
+              <ChevronsRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>

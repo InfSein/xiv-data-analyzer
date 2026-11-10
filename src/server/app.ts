@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import express, { type Express, type Request, type Response } from 'express'
 import type {
+  DiffEntityType,
   DiffFilterType,
   ItemFilterMode,
   ItemSortMode,
@@ -172,6 +173,10 @@ export function createApiApp(customService?: GameDataService): Express {
           typeof req.query.filter === 'string'
             ? (req.query.filter as DiffFilterType)
             : undefined,
+        entityType:
+          typeof req.query.entityType === 'string'
+            ? (req.query.entityType as DiffEntityType)
+            : undefined,
         q: typeof req.query.q === 'string' ? req.query.q : undefined,
         page: req.query.page ? Number(req.query.page) : 1,
         pageSize: req.query.pageSize ? Number(req.query.pageSize) : 30,
@@ -215,6 +220,27 @@ export function createApiApp(customService?: GameDataService): Express {
     } catch (err) {
       const message = err instanceof Error ? err.message : '未知错误'
       res.status(500).json({ error: `查询道具列表失败: ${message}` })
+    }
+  })
+
+  // 搜索与多条件筛选成就与称号
+  app.get('/api/achievements', async (req: Request, res: Response) => {
+    try {
+      const svc = await resolveService()
+      const result = svc.searchAchievements({
+        q: typeof req.query.q === 'string' ? req.query.q : undefined,
+        kindId: req.query.kindId ? Number(req.query.kindId) : undefined,
+        filter:
+          req.query.filter === 'with_title' || req.query.filter === 'with_item'
+            ? req.query.filter
+            : 'all',
+        page: req.query.page ? Number(req.query.page) : 1,
+        pageSize: req.query.pageSize ? Number(req.query.pageSize) : 30,
+      })
+      res.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      res.status(500).json({ error: `查询成就与称号列表失败: ${message}` })
     }
   })
 

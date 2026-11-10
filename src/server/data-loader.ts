@@ -1,5 +1,7 @@
 import { GameSqPackReader, Language } from '@ffcafe/elpis-sqpack'
 import type {
+  AchievementEntry,
+  AchievementKindInfo,
   CraftTypeInfo,
   ItemCategoryInfo,
   ItemSummary,
@@ -49,6 +51,47 @@ function formatEquipSlotCategory(row: any[]): string {
   return slots.join(' / ')
 }
 
+/**
+ * 判断 Item 行是否具有“装备性能与副属性词条”
+ * 条件与 extractEquipmentStats 保持完全一致
+ */
+export function hasItemEquipmentStats(row: any[]): boolean {
+  const damagePhys = Number(row[51])
+  const damageMag = Number(row[52])
+  const blockRate = Number(row[55])
+  const block = Number(row[56])
+  const defensePhys = Number(row[57])
+  const defenseMag = Number(row[58])
+  const materiaSlotCount = Number(row[86])
+
+  if (
+    damagePhys > 0 ||
+    damageMag > 0 ||
+    blockRate > 0 ||
+    block > 0 ||
+    defensePhys > 0 ||
+    defenseMag > 0 ||
+    materiaSlotCount > 0
+  ) {
+    return true
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const paramId = Number(row[59 + i * 2])
+    const valNq = Number(row[60 + i * 2])
+    if (paramId > 0 && valNq !== 0) {
+      return true
+    }
+    const spParamId = Number(row[73 + i * 2])
+    const spVal = Number(row[74 + i * 2])
+    if (spParamId > 0 && spVal !== 0) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export interface LoadedGameStore {
   cnReader: GameSqPackReader
   globalReader: GameSqPackReader
@@ -70,6 +113,7 @@ export interface LoadedGameStore {
   itemRepairResources: Map<number, number>
   itemActions: Map<number, any[]>
   itemFoods: Map<number, any[]>
+  cabinetItemIds: Set<number>
 
   // 配方表与反向索引
   recipes: Map<number, any[]>
@@ -120,6 +164,13 @@ export interface LoadedGameStore {
   itemSummaryById: Map<number, ItemSummary>
   categoryList: ItemCategoryInfo[]
   craftTypeList: CraftTypeInfo[]
+
+  // 成就与称号索引
+  achievements: AchievementEntry[]
+  achievementById: Map<number, AchievementEntry>
+  achievementsByRewardItem: Map<number, AchievementEntry[]>
+  achievementKindList: AchievementKindInfo[]
+  totalTitles: number
 }
 
 /**
@@ -383,6 +434,15 @@ export async function loadGameDataStore(
     inclusionSeries,
     customTalks,
     levels,
+    rawCabinets,
+    achievementsCn,
+    achievementsEn,
+    achievementsJa,
+    rawAchievementCategories,
+    rawAchievementKinds,
+    titlesCn,
+    titlesEn,
+    titlesJa,
   ] = await Promise.all([
     loadSheetRows(cnReader, 'Item', Language.ChineseSimplified),
     loadSheetRows(globalReader, 'Item', Language.English, [8, 9]),
@@ -431,6 +491,15 @@ export async function loadGameDataStore(
     loadSubrowSheet(cnReader, 'InclusionShopSeries', Language.None),
     loadSheetRows(cnReader, 'CustomTalk', Language.None),
     loadSheetRows(cnReader, 'Level', Language.None),
+    loadSheetRows(cnReader, 'Cabinet', Language.None),
+    loadSheetRows(cnReader, 'Achievement', Language.ChineseSimplified),
+    loadSheetRows(globalReader, 'Achievement', Language.English, [1, 2]),
+    loadSheetRows(globalReader, 'Achievement', Language.Japanese, [1, 2]),
+    loadSheetRows(cnReader, 'AchievementCategory', Language.ChineseSimplified),
+    loadSheetRows(cnReader, 'AchievementKind', Language.ChineseSimplified),
+    loadSheetRows(cnReader, 'Title', Language.ChineseSimplified),
+    loadSheetRows(globalReader, 'Title', Language.English, [0, 1]),
+    loadSheetRows(globalReader, 'Title', Language.Japanese, [0, 1]),
   ])
 
   const categories = new Map<number, { name: string; iconId: number }>()
@@ -585,6 +654,14 @@ export async function loadGameDataStore(
   })
 
   // 构建全量有效道具摘要列表与分类计数
+  const cabinetItemIds = new Set<number>()
+  for (const [, row] of rawCabinets.entries()) {
+    const cabItemId = Number(row[0])
+    if (cabItemId > 0) {
+      cabinetItemIds.add(cabItemId)
+    }
+  }
+
   const itemSummaries: ItemSummary[] = []
   const itemSummaryById = new Map<number, ItemSummary>()
   const categoryCountMap = new Map<number, number>()
@@ -608,6 +685,13 @@ export async function loadGameDataStore(
       (fishingSpotsByItem.get(itemId)?.length || 0) > 0 ||
       (spearfishingByItem.get(itemId)?.length || 0) > 0
 
+    const itemShops = shopsByItem.get(itemId) || []
+    const isPurchasable = itemShops.length > 0
+    const isGilShop = itemShops.some((s) => s.shopType === 'gil')
+    const isSpecialShop = itemShops.some((s) => s.shopType !== 'gil')
+    const isTradable = !row[22]
+    const isMarketable = isTradable && Number(row[16]) > 0
+
     const summary: ItemSummary = {
       id: itemId,
       nameCn,
@@ -622,10 +706,14 @@ export async function loadGameDataStore(
       categoryIconId: catInfo?.iconId || 0,
       priceMid: Number(row[25]),
       canBeHq: Boolean(row[27]),
-      isTradable: !row[22],
+      isTradable,
+      isMarketable,
       isCraftable: recipesByResultItem.has(itemId),
       isGatherable,
-      isPurchasable: (shopsByItem.get(itemId)?.length || 0) > 0,
+      isPurchasable,
+      isGilShop,
+      isSpecialShop,
+      hasEquipmentStats: hasItemEquipmentStats(row),
       usedInRecipesCount: recipesByIngredientItem.get(itemId)?.length || 0,
     }
 
@@ -650,6 +738,112 @@ export async function loadGameDataStore(
   }
   categoryList.sort((a, b) => a.id - b.id)
 
+  // 解析成就分类、大类与称号表
+  const achievementKinds = new Map<number, { name: string; order: number }>()
+  for (const [id, row] of rawAchievementKinds.entries()) {
+    const name = decodeSeString(row[0])
+    if (name) {
+      achievementKinds.set(id, { name, order: Number(row[1]) })
+    }
+  }
+
+  const achievementCategories = new Map<
+    number,
+    { name: string; kindId: number }
+  >()
+  for (const [id, row] of rawAchievementCategories.entries()) {
+    const name = decodeSeString(row[0])
+    if (name) {
+      achievementCategories.set(id, { name, kindId: Number(row[1]) })
+    }
+  }
+
+  let totalTitles = 0
+  for (const [, row] of titlesCn.entries()) {
+    if (decodeSeString(row[0])) {
+      totalTitles++
+    }
+  }
+
+  const achievements: AchievementEntry[] = []
+  const achievementById = new Map<number, AchievementEntry>()
+  const achievementsByRewardItem = new Map<number, AchievementEntry[]>()
+  const kindCountMap = new Map<number, number>()
+
+  for (const [achId, row] of achievementsCn.entries()) {
+    if (achId <= 0) continue
+    const nameCn = decodeSeString(row[1])
+    if (!nameCn) continue
+
+    const enRow = achievementsEn.get(achId)
+    const jaRow = achievementsJa.get(achId)
+    const categoryId = Number(row[0])
+    const catInfo = achievementCategories.get(categoryId)
+    const kindId = catInfo?.kindId || 0
+    const kindInfo = achievementKinds.get(kindId)
+
+    const titleId = Number(row[6])
+    const titleCnRow = titleId > 0 ? titlesCn.get(titleId) : undefined
+    const titleEnRow = titleId > 0 ? titlesEn.get(titleId) : undefined
+    const titleJaRow = titleId > 0 ? titlesJa.get(titleId) : undefined
+
+    const rewardItemId = Number(row[7])
+    const rewardItemSummary =
+      rewardItemId > 0 ? itemSummaryById.get(rewardItemId) : undefined
+
+    const entry: AchievementEntry = {
+      id: achId,
+      nameCn,
+      nameEn: enRow ? decodeSeString(enRow[1]) : '',
+      nameJa: jaRow ? decodeSeString(jaRow[1]) : '',
+      descriptionCn: decodeSeString(row[2]),
+      descriptionEn: enRow ? decodeSeString(enRow[2]) : '',
+      descriptionJa: jaRow ? decodeSeString(jaRow[2]) : '',
+      points: Number(row[5]),
+      iconId: Number(row[11]),
+      kindId,
+      kindName: kindInfo?.name || '其他',
+      categoryId,
+      categoryName: catInfo?.name || '常规',
+      titleId,
+      titleMasculineCn: titleCnRow ? decodeSeString(titleCnRow[0]) : '',
+      titleFeminineCn: titleCnRow ? decodeSeString(titleCnRow[1]) : '',
+      titleNameEn: titleEnRow ? decodeSeString(titleEnRow[0]) : '',
+      titleNameJa: titleJaRow ? decodeSeString(titleJaRow[0]) : '',
+      titleIsPrefix: titleCnRow ? Boolean(titleCnRow[2]) : false,
+      rewardItemId,
+      rewardItemNameCn: rewardItemSummary?.nameCn || '',
+      rewardItemIconId: rewardItemSummary?.iconId || 0,
+    }
+
+    achievements.push(entry)
+    achievementById.set(achId, entry)
+
+    if (kindId > 0) {
+      kindCountMap.set(kindId, (kindCountMap.get(kindId) || 0) + 1)
+    }
+
+    if (rewardItemId > 0) {
+      let list = achievementsByRewardItem.get(rewardItemId)
+      if (!list) {
+        list = []
+        achievementsByRewardItem.set(rewardItemId, list)
+      }
+      list.push(entry)
+    }
+  }
+
+  achievements.sort((a, b) => a.id - b.id)
+
+  const achievementKindList: AchievementKindInfo[] = []
+  for (const [id, info] of achievementKinds.entries()) {
+    const count = kindCountMap.get(id) || 0
+    if (count > 0) {
+      achievementKindList.push({ id, name: info.name, count })
+    }
+  }
+  achievementKindList.sort((a, b) => a.id - b.id)
+
   const loadTimeMs = Date.now() - startTime
 
   return {
@@ -671,6 +865,7 @@ export async function loadGameDataStore(
     itemRepairResources,
     itemActions,
     itemFoods,
+    cabinetItemIds,
     recipes,
     recipesByResultItem,
     recipesByIngredientItem,
@@ -703,5 +898,10 @@ export async function loadGameDataStore(
     itemSummaryById,
     categoryList,
     craftTypeList,
+    achievements,
+    achievementById,
+    achievementsByRewardItem,
+    achievementKindList,
+    totalTitles,
   }
 }

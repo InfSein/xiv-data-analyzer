@@ -19,8 +19,8 @@ const FILTER_MODES: Array<{ mode: ItemFilterMode; label: string }> = [
   { mode: 'all', label: '全部' },
   { mode: 'craftable', label: '可制作' },
   { mode: 'gatherable', label: '可采集' },
-  { mode: 'purchasable', label: '可商店购买' },
-  { mode: 'ingredient', label: '配方素材' },
+  { mode: 'gil_shop', label: '金币商店' },
+  { mode: 'special_shop', label: '特殊兑换' },
   { mode: 'equipment', label: '武器装备' },
   { mode: 'consumable', label: '食品药水' },
 ]

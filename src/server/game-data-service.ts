@@ -1,6 +1,9 @@
 import type {
+  AchievementSearchQuery,
+  AchievementSearchResponse,
   ConsumableEffect,
   ConsumableParamBonus,
+  EquipmentAttributes,
   EquipmentStatBonus,
   EquipmentStats,
   FishingSpotInfo,
@@ -19,6 +22,7 @@ import type {
   SpearfishingInfo,
   SystemStatus,
   UsedInRecipeItem,
+  WeaponKind,
 } from '../shared/types'
 import type { LoadedGameStore } from './data-loader'
 import { decodeSeString, readIconPng, readMapPng } from './sqpack-helper'
@@ -105,10 +109,14 @@ export class GameDataService {
     let craftableItems = 0
     let gatherableItems = 0
     let purchasableItems = 0
+    let gilShopItems = 0
+    let specialShopItems = 0
     for (const item of this.store.itemSummaries) {
       if (item.isCraftable) craftableItems++
       if (item.isGatherable) gatherableItems++
       if (item.isPurchasable) purchasableItems++
+      if (item.isGilShop) gilShopItems++
+      if (item.isSpecialShop) specialShopItems++
     }
 
     return {
@@ -121,14 +129,19 @@ export class GameDataService {
         craftableItems,
         gatherableItems,
         purchasableItems,
+        gilShopItems,
+        specialShopItems,
         totalRecipes: this.store.recipes.size,
         totalGatheringPoints: this.store.gatheringPoints.size,
         totalFishingSpots: this.store.fishingSpots.size,
         totalShops: this.store.totalActiveShops,
+        totalAchievements: this.store.achievements.length,
+        totalTitles: this.store.totalTitles,
         loadTimeMs: this.store.loadTimeMs,
       },
       categories: this.store.categoryList,
       craftTypes: this.store.craftTypeList,
+      achievementKinds: this.store.achievementKindList,
     }
   }
 
@@ -157,8 +170,9 @@ export class GameDataService {
       if (filter === 'craftable' && !item.isCraftable) return false
       if (filter === 'gatherable' && !item.isGatherable) return false
       if (filter === 'purchasable' && !item.isPurchasable) return false
-      if (filter === 'ingredient' && item.usedInRecipesCount === 0) return false
-      if (filter === 'equipment' && item.equipLevel <= 0) return false
+      if (filter === 'gil_shop' && !item.isGilShop) return false
+      if (filter === 'special_shop' && !item.isSpecialShop) return false
+      if (filter === 'equipment' && !item.hasEquipmentStats) return false
       if (
         filter === 'consumable' &&
         item.categoryId !== 44 &&
@@ -248,6 +262,7 @@ export class GameDataService {
     const jaRow = this.store.itemsJa.get(itemId)
 
     const equipSlotId = Number(row[17])
+    const isEquipment = equipSlotId > 0
     const classJobCategoryId = Number(row[43])
     const repairClassJobId = Number(row[33])
     const itemRepairId = Number(row[34])
@@ -256,16 +271,26 @@ export class GameDataService {
         ? this.store.itemRepairResources.get(itemRepairId) || 0
         : 0
 
+    const repairClassJobName =
+      this.store.classJobs.get(repairClassJobId)?.name || ''
     const equipmentStats = this.extractEquipmentStats(row)
+    const equipmentAttributes = isEquipment
+      ? this.extractEquipmentAttributes(itemId, row, repairClassJobName)
+      : undefined
     const consumableEffect = this.extractConsumableEffect(row)
     const recipes = this.buildItemRecipes(itemId)
-    const recipeTree =
-      recipes.length > 0
-        ? this.buildRecipeTree(itemId, recipes[0].resultAmount, 0, new Set())
-        : undefined
+    const recipeTrees = recipes
+      .map((r) => this.buildRecipeTreeForRecipe(r, r.resultAmount, 0, new Set()))
+      .filter((t): t is RecipeTreeNode => Boolean(t))
     const usedInRecipes = this.buildUsedInRecipes(itemId)
     const gathering = this.buildGatheringDetail(itemId)
     const shops = this.buildShopSources(itemId)
+    const rewardedFromAchievements =
+      this.store.achievementsByRewardItem.get(itemId) || undefined
+
+    const isIndisposable = Boolean(row[23])
+    const priceLow = Number(row[26])
+    const isSellable = !isIndisposable && priceLow > 0
 
     return {
       ...summary,
@@ -274,36 +299,69 @@ export class GameDataService {
       descriptionJa: jaRow ? decodeSeString(jaRow[8]) : '',
       stackSize: Number(row[20]),
       isUnique: Boolean(row[21]),
-      isIndisposable: Boolean(row[23]),
+      isIndisposable,
       isCollectable: Boolean(row[37]) || Boolean(row[38]),
       dyeCount: Number(row[28]),
       canDesynth: Number(row[36]) > 0,
       canAetherialReduce: Number(row[39]) > 0,
       isGlamourous: Boolean(row[90]),
-      priceLow: Number(row[26]),
+      priceLow,
+      isSellable,
+      isEquipment,
       classJobCategoryName:
         this.store.classJobCategories.get(classJobCategoryId) || '',
       equipSlotName: this.store.equipSlots.get(equipSlotId) || '',
-      repairClassJobName:
-        this.store.classJobs.get(repairClassJobId)?.name || '',
-      repairItemName:
-        this.store.itemSummaryById.get(repairResourceItemId)?.nameCn || '',
+      repairClassJobName: isEquipment ? repairClassJobName : '',
+      repairItemName: isEquipment
+        ? this.store.itemSummaryById.get(repairResourceItemId)?.nameCn || ''
+        : '',
       equipmentStats,
+      equipmentAttributes,
       consumableEffect,
       recipes,
-      recipeTree,
+      recipeTrees,
       usedInRecipes,
       gathering,
       shops,
+      rewardedFromAchievements,
     }
   }
 
   /**
-   * 提取装备武器性能、防御力及副属性加成（含 HQ 增益计算）
+   * 提取装备类物品的附加特性（精制魔晶石、武具投影、道具分解、染色、部队徽记、投影台、收藏柜）
+   */
+  private extractEquipmentAttributes(
+    itemId: number,
+    row: any[],
+    repairClassJobName: string,
+  ): EquipmentAttributes {
+    const canExtractMateria = Number(row[85]) > 0
+    const isProjectable = Boolean(row[90])
+    const canDesynth = Number(row[36]) > 0
+    const dyeCount = Number(row[28])
+    const isCrestWorthy = Boolean(row[29])
+    const canStoreInGlamourDresser = Boolean(row[90])
+    const canStoreInArmoire = this.store.cabinetItemIds.has(itemId)
+
+    return {
+      canExtractMateria,
+      isProjectable,
+      canDesynth,
+      desynthClassJobName: canDesynth ? repairClassJobName : '',
+      dyeCount,
+      isCrestWorthy,
+      canStoreInGlamourDresser,
+      canStoreInArmoire,
+    }
+  }
+
+  /**
+   * 提取装备武器性能、物理自动攻击、格挡、防御力及副属性加成（含 HQ 增益计算）
    */
   private extractEquipmentStats(row: any[]): EquipmentStats | undefined {
-    const damagePhys = Number(row[51])
-    const damageMag = Number(row[52])
+    const filterGroup = Number(row[13])
+    const rawDamagePhys = Number(row[51])
+    const rawDamageMag = Number(row[52])
     const delayMs = Number(row[53])
     const blockRate = Number(row[55])
     const block = Number(row[56])
@@ -312,7 +370,29 @@ export class GameDataService {
     const materiaSlotCount = Number(row[86])
     const isAdvancedMeldingPermitted = Boolean(row[87])
 
-    // 收集 HQ 额外属性加成 (列 73..84 共 6 组)
+    // 区分武器性能类型：FilterGroup 1 为物理武器（含主工具），2 为魔法武器，3 为盾牌
+    let weaponKind: WeaponKind = 'none'
+    if (filterGroup === 1) {
+      weaponKind = 'physical'
+    } else if (filterGroup === 2) {
+      weaponKind = 'magical'
+    } else if (filterGroup === 3 || blockRate > 0 || block > 0) {
+      weaponKind = 'shield'
+    } else if (rawDamagePhys > 0 && rawDamageMag === 0) {
+      weaponKind = 'physical'
+    } else if (rawDamageMag > 0 && rawDamagePhys === 0) {
+      weaponKind = 'magical'
+    } else if (rawDamagePhys > 0) {
+      weaponKind = 'physical'
+    }
+
+    // 物理武器仅展示物理基本性能，魔法武器仅展示魔法基本性能
+    const damagePhys = weaponKind === 'magical' ? 0 : rawDamagePhys
+    const damageMag = weaponKind === 'physical' ? 0 : rawDamageMag
+
+    // 收集 HQ / 特殊属性加成 (列 73..84 共 6 组)
+    // ItemSpecialBonus === 1 时代表 HQ 品质加成，其他值（如 2 套装加成、7 神兵可定制属性）不计入 HQ 面板
+    const itemSpecialBonus = Number(row[71])
     const specialBonusByParam = new Map<number, number>()
     for (let i = 0; i < 6; i++) {
       const paramId = Number(row[73 + i * 2])
@@ -325,16 +405,18 @@ export class GameDataService {
       }
     }
 
-    // 收集基础属性加成 (列 59..70 共 6 组)
+    const hqExtraFor = (paramId: number): number =>
+      itemSpecialBonus === 1 ? specialBonusByParam.get(paramId) || 0 : 0
+
+    // 收集副属性加成 (列 59..70 共 6 组)
     const bonuses: EquipmentStatBonus[] = []
-    const seenParams = new Set<number>()
     for (let i = 0; i < 6; i++) {
       const paramId = Number(row[59 + i * 2])
       const valNq = Number(row[60 + i * 2])
       if (paramId > 0 && valNq !== 0) {
-        seenParams.add(paramId)
-        const name = this.store.baseParams.get(paramId)?.name || `属性#${paramId}`
-        const extraHq = specialBonusByParam.get(paramId) || 0
+        const name =
+          this.store.baseParams.get(paramId)?.name || `属性#${paramId}`
+        const extraHq = hqExtraFor(paramId)
         bonuses.push({
           paramId,
           name,
@@ -344,13 +426,53 @@ export class GameDataService {
       }
     }
 
-    // 物理防御力 BaseParam=21，魔法防御力 BaseParam=24，物理基本性能=12，魔法基本性能=13
-    const defensePhysHq = defensePhys + (specialBonusByParam.get(21) || 0)
-    const defenseMagHq = defenseMag + (specialBonusByParam.get(24) || 0)
+    // 若存在仅在 HQ 生效的额外副属性（非 12物理基本性能 / 13魔法基本性能 / 17格挡发动力 / 18格挡性能 / 21物理防御力 / 24魔法防御力）
+    if (itemSpecialBonus === 1) {
+      const primaryParamIds = new Set([12, 13, 17, 18, 21, 24])
+      const existingParamIds = new Set(bonuses.map((b) => b.paramId))
+      for (const [paramId, bonusVal] of specialBonusByParam.entries()) {
+        if (!primaryParamIds.has(paramId) && !existingParamIds.has(paramId) && bonusVal > 0) {
+          const name =
+            this.store.baseParams.get(paramId)?.name || `属性#${paramId}`
+          bonuses.push({
+            paramId,
+            name,
+            valueNq: 0,
+            valueHq: bonusVal,
+          })
+        }
+      }
+    }
+
+    // 物理基本性能=12，魔法基本性能=13，格挡发动力=17，格挡性能=18，物理防御力=21，魔法防御力=24
+    const damagePhysHq =
+      damagePhys > 0 ? damagePhys + hqExtraFor(12) : 0
+    const damageMagHq =
+      damageMag > 0 ? damageMag + hqExtraFor(13) : 0
+    const blockRateHq =
+      blockRate > 0 ? blockRate + hqExtraFor(17) : 0
+    const blockHq = block > 0 ? block + hqExtraFor(18) : 0
+    const defensePhysHq =
+      defensePhys > 0 ? defensePhys + hqExtraFor(21) : 0
+    const defenseMagHq =
+      defenseMag > 0 ? defenseMag + hqExtraFor(24) : 0
+
+    // 计算武器物理自动攻击：trunc((DamagePhys * DelayMs) / 3000 * 100) / 100
+    // 在 FF14 游戏内，不论是物理武器还是魔法武器，均按底层 DamagePhys (row[51]) 与攻击间隔计算物理自动攻击
+    const calcAutoAttack = (physDmg: number): number => {
+      if (physDmg <= 0 || delayMs <= 0) return 0
+      return Math.floor(((physDmg * delayMs) / 3000) * 100) / 100
+    }
+    const rawDamagePhysHq =
+      rawDamagePhys > 0 ? rawDamagePhys + hqExtraFor(12) : 0
+    const autoAttack = calcAutoAttack(rawDamagePhys)
+    const autoAttackHq = calcAutoAttack(rawDamagePhysHq)
 
     if (
       damagePhys === 0 &&
       damageMag === 0 &&
+      blockRate === 0 &&
+      block === 0 &&
       defensePhys === 0 &&
       defenseMag === 0 &&
       bonuses.length === 0 &&
@@ -360,11 +482,18 @@ export class GameDataService {
     }
 
     return {
+      weaponKind,
       damagePhys,
+      damagePhysHq,
       damageMag,
+      damageMagHq,
+      autoAttack,
+      autoAttackHq,
       delaySec: delayMs > 0 ? Number((delayMs / 1000).toFixed(2)) : 0,
       blockRate,
+      blockRateHq,
       block,
+      blockHq,
       defensePhys,
       defensePhysHq,
       defenseMag,
@@ -532,6 +661,55 @@ export class GameDataService {
   }
 
   /**
+   * 针对指定配方递归构建配方树（防止环路，最大递归深度 5 层）
+   */
+  private buildRecipeTreeForRecipe(
+    recipe: RecipeDetail,
+    amountPerCraft: number,
+    depth: number,
+    visited: Set<number>,
+  ): RecipeTreeNode | undefined {
+    const summary = this.store.itemSummaryById.get(recipe.resultItemId)
+    if (!summary) return undefined
+
+    const nextVisited = new Set(visited)
+    nextVisited.add(recipe.resultItemId)
+
+    const children: RecipeTreeNode[] = []
+    for (const ing of recipe.ingredients) {
+      const childNode = this.buildRecipeTree(
+        ing.itemId,
+        ing.amount,
+        depth + 1,
+        nextVisited,
+      )
+      if (childNode) {
+        children.push(childNode)
+      }
+    }
+
+    return {
+      itemId: recipe.resultItemId,
+      nameCn: summary.nameCn,
+      iconId: summary.iconId,
+      amountPerCraft,
+      yieldPerCraft: recipe.resultAmount,
+      craftJobName: recipe.craftJobName,
+      craftJobIconId: recipe.craftJobIconId,
+      recipeLevel: recipe.recipeLevel,
+      stars: recipe.stars,
+      isGatherable: summary.isGatherable,
+      children,
+      crystals: recipe.crystals.map((c) => ({
+        itemId: c.itemId,
+        nameCn: c.nameCn,
+        iconId: c.iconId,
+        amount: c.amount,
+      })),
+    }
+  }
+
+  /**
    * 递归构建配方树（防止环路，最大递归深度 5 层）
    */
   private buildRecipeTree(
@@ -557,45 +735,16 @@ export class GameDataService {
       }
     }
 
-    const nextVisited = new Set(visited)
-    nextVisited.add(itemId)
-
     const recipes = this.buildItemRecipes(itemId)
     const primary = recipes[0]
     if (!primary) return undefined
 
-    const children: RecipeTreeNode[] = []
-    for (const ing of primary.ingredients) {
-      const childNode = this.buildRecipeTree(
-        ing.itemId,
-        ing.amount,
-        depth + 1,
-        nextVisited,
-      )
-      if (childNode) {
-        children.push(childNode)
-      }
-    }
-
-    return {
-      itemId,
-      nameCn: summary.nameCn,
-      iconId: summary.iconId,
+    return this.buildRecipeTreeForRecipe(
+      primary,
       amountPerCraft,
-      yieldPerCraft: primary.resultAmount,
-      craftJobName: primary.craftJobName,
-      craftJobIconId: primary.craftJobIconId,
-      recipeLevel: primary.recipeLevel,
-      stars: primary.stars,
-      isGatherable: summary.isGatherable,
-      children,
-      crystals: primary.crystals.map((c) => ({
-        itemId: c.itemId,
-        nameCn: c.nameCn,
-        iconId: c.iconId,
-        amount: c.amount,
-      })),
-    }
+      depth,
+      visited,
+    )
   }
 
   /**
@@ -1139,6 +1288,54 @@ export class GameDataService {
       sizeFactor,
       offsetX,
       offsetY,
+    }
+  }
+
+  /**
+   * 搜索与多条件筛选成就与称号列表
+   */
+  searchAchievements(query: AchievementSearchQuery): AchievementSearchResponse {
+    const q = (query.q || '').trim().toLowerCase()
+    const numericQuery = /^\d+$/.test(q) ? Number(q) : null
+    const kindId = query.kindId ? Number(query.kindId) : 0
+    const filter = query.filter || 'all'
+
+    const filtered = this.store.achievements.filter((ach) => {
+      if (kindId > 0 && ach.kindId !== kindId) return false
+      if (filter === 'with_title' && ach.titleId <= 0) return false
+      if (filter === 'with_item' && ach.rewardItemId <= 0) return false
+
+      if (q) {
+        if (numericQuery !== null && ach.id === numericQuery) return true
+        return (
+          ach.nameCn.toLowerCase().includes(q) ||
+          ach.nameEn.toLowerCase().includes(q) ||
+          ach.nameJa.toLowerCase().includes(q) ||
+          ach.descriptionCn.toLowerCase().includes(q) ||
+          ach.titleMasculineCn.toLowerCase().includes(q) ||
+          ach.titleFeminineCn.toLowerCase().includes(q) ||
+          ach.titleNameEn.toLowerCase().includes(q) ||
+          ach.titleNameJa.toLowerCase().includes(q) ||
+          ach.rewardItemNameCn.toLowerCase().includes(q) ||
+          String(ach.id) === q
+        )
+      }
+      return true
+    })
+
+    const pageSize = Math.max(1, Math.min(100, Number(query.pageSize) || 30))
+    const total = filtered.length
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    const page = Math.max(1, Math.min(totalPages, Number(query.page) || 1))
+    const start = (page - 1) * pageSize
+    const items = filtered.slice(start, start + pageSize)
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages,
     }
   }
 

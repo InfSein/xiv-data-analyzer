@@ -1,4 +1,6 @@
 import type {
+  AchievementSearchQuery,
+  AchievementSearchResponse,
   ItemDetail,
   ItemSearchQuery,
   ItemSearchResponse,
@@ -65,6 +67,35 @@ export async function fetchItems(
 }
 
 /**
+ * 搜索与筛选成就与称号列表
+ */
+export async function fetchAchievements(
+  query: AchievementSearchQuery,
+): Promise<AchievementSearchResponse> {
+  const params = new URLSearchParams()
+  if (query.q) params.set('q', query.q)
+  if (query.kindId && query.kindId > 0) {
+    params.set('kindId', String(query.kindId))
+  }
+  if (query.filter && query.filter !== 'all') {
+    params.set('filter', query.filter)
+  }
+  if (query.page) {
+    params.set('page', String(query.page))
+  }
+  if (query.pageSize) {
+    params.set('pageSize', String(query.pageSize))
+  }
+
+  const res = await fetch(`/api/achievements?${params.toString()}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `搜索成就与称号失败 (${res.status})`)
+  }
+  return res.json()
+}
+
+/**
  * 获取单个道具完整详情
  */
 export async function fetchItemDetail(itemId: number): Promise<ItemDetail> {
@@ -110,6 +141,9 @@ export async function fetchVersionDiff(
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
   if (query.filter && query.filter !== 'all') params.set('filter', query.filter)
+  if (query.entityType && query.entityType !== 'all') {
+    params.set('entityType', query.entityType)
+  }
   if (query.q) params.set('q', query.q)
   if (query.page) params.set('page', String(query.page))
   if (query.pageSize) params.set('pageSize', String(query.pageSize))
